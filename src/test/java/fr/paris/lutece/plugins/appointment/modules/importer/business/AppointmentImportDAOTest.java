@@ -97,7 +97,14 @@ public class AppointmentImportDAOTest extends AbstractLuteceIntegrationTest
                 "file-" + nFileId + ".xlsx", SLOT_START.toLocalDate( ).toString( ) ).contains( nBatchId ) );
         assertFalse( AppointmentImportHome.findBatchIds( listForms, null, null, null, SLOT_START.toLocalDate( ).plusDays( 1 ).toString( ) )
                 .contains( nBatchId ) );
-        assertTrue( AppointmentImportHome.findFileIds( listForms, "file-" + nFileId + ".xlsx", null ).contains( nFileId ) );
+        assertTrue( AppointmentImportHome.findFileIds( listForms, null, "file-" + nFileId + ".xlsx", null, null ).contains( nFileId ) );
+        // The files are filtered on the form and on the date of their slots, as the batches
+        assertTrue( AppointmentImportHome.findFileIds( listForms, Integer.toString( FORM_ID ), null, null, SLOT_START.toLocalDate( ).toString( ) )
+                .contains( nFileId ) );
+        assertFalse( AppointmentImportHome.findFileIds( listForms, null, null, null, SLOT_START.toLocalDate( ).plusDays( 1 ).toString( ) )
+                .contains( nFileId ) );
+        assertTrue( AppointmentImportHome.findFileIds( Arrays.asList( FORM_ID, FORM_ID + 1 ), Integer.toString( FORM_ID + 1 ), null, null, null )
+                .isEmpty( ) );
         assertTrue( AppointmentImportHome.findBatchIds( Collections.singletonList( FORM_ID + 1 ), null, null, null, null ).isEmpty( ) );
     }
 
@@ -176,7 +183,7 @@ public class AppointmentImportDAOTest extends AbstractLuteceIntegrationTest
         setLastExecDate( "appointment_import_batch", "id_import_batch", nBatchId, LocalDateTime.now( ).minusDays( 100 ) );
 
         assertTrue( AppointmentImportHome.findBatchIdsToPurge( LocalDateTime.now( ).minusDays( 90 ) ).contains( nBatchId ) );
-        AppointmentImportHome.purgeBatch( nBatchId );
+        assertTrue( AppointmentImportHome.purgeBatch( nBatchId ) );
         assertTrue( AppointmentImportHome.findAppointmentsByBatch( nBatchId, null ).isEmpty( ) );
         assertEquals( AppointmentImportStatus.ARCHIVED, AppointmentImportHome.findBatch( nBatchId ).getStatus( ) );
         assertTrue( AppointmentImportHome.fileAllBatchesArchived( nFileId ) );
@@ -191,6 +198,19 @@ public class AppointmentImportDAOTest extends AbstractLuteceIntegrationTest
         AppointmentImportFile rejected = AppointmentImportHome.findFile( nRejectedId );
         assertNull( rejected.getValidationReport( ) );
         assertNull( rejected.getFileHash( ) );
+    }
+
+    @Test
+    public void testRetriedBatchIsNotPurged( )
+    {
+        int nBatchId = createBatch( createFile( AppointmentImportStatus.PENDING, "hash-purge-retried" ), AppointmentImportStatus.COMPLETED_WITH_ERRORS );
+        createRows( nBatchId, AppointmentImportStatus.ERROR );
+        // Selected by the purge, then retried before being purged
+        assertTrue( AppointmentImportHome.requeueBatch( nBatchId ) );
+
+        assertFalse( AppointmentImportHome.purgeBatch( nBatchId ) );
+        assertEquals( AppointmentImportStatus.PENDING, AppointmentImportHome.findBatch( nBatchId ).getStatus( ) );
+        assertEquals( 1, AppointmentImportHome.findAppointmentsByBatch( nBatchId, null ).size( ) );
     }
 
     private static int createFile( String strStatus, String strHash )

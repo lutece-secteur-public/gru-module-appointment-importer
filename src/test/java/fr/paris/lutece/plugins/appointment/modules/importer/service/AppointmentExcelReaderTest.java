@@ -173,6 +173,15 @@ public class AppointmentExcelReaderTest
     }
 
     @Test
+    public void testWorkbookWithoutRowsIsRejected( ) throws IOException
+    {
+        AppointmentExcelValidationResult result = read( ImportTestUtils.HEADERS );
+
+        assertTrue( messages( result ).toString( ),
+                messages( result ).contains( "module.appointment.importer.workbook : module.appointment.importer.error.workbook.noRows" ) );
+    }
+
+    @Test
     public void testTooManyRows( ) throws IOException
     {
         AppointmentExcelValidationResult result = _reader.read( ImportTestUtils.workbook( ImportTestUtils.HEADERS,

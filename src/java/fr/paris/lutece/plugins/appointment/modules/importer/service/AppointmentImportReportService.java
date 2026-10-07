@@ -56,7 +56,6 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import fr.paris.lutece.plugins.appointment.business.appointment.Appointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
-import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
@@ -104,7 +103,7 @@ public final class AppointmentImportReportService
             }
         }
         ImportColumns columns = ImportColumns.fromProperties( );
-        Map<Integer, String> mapReferences = appointmentReferences( nFileId );
+        Map<Integer, String> mapReferences = appointmentReferences( listRows );
         try ( XSSFWorkbook workbook = new XSSFWorkbook( ); ByteArrayOutputStream output = new ByteArrayOutputStream( ) )
         {
             XSSFCellStyle headerStyle = buildHeaderStyle( workbook );
@@ -312,20 +311,22 @@ public final class AppointmentImportReportService
     }
 
     /**
-     * Reads the references of the appointments of the form of a file through the appointment plugin, in one call rather than one per row.
+     * Reads the references of the appointments created by an import, through the appointment plugin. Only the appointments of the import are read, so
+     * that the cost of the report follows the size of the import, not the history of the form.
      *
-     * @param nFileId the {@code id_import_file}
-     * @return the reference of each appointment of the form
+     * @param listRows the rows of the import
+     * @return the reference of each created appointment still found
      */
-    private static Map<Integer, String> appointmentReferences( int nFileId )
+    private static Map<Integer, String> appointmentReferences( List<ReportRow> listRows )
     {
-        AppointmentImportFile file = AppointmentImportHome.findFile( nFileId );
         Map<Integer, String> mapReferences = new HashMap<>( );
-        if ( file != null )
+        for ( ReportRow reportRow : listRows )
         {
-            for ( Appointment appointment : AppointmentService.findListAppointmentByIdForm( file.getIdForm( ) ) )
+            Integer nIdAppointment = reportRow._appointment.getIdAppointment( );
+            if ( nIdAppointment != null && !mapReferences.containsKey( nIdAppointment ) )
             {
-                mapReferences.put( appointment.getIdAppointment( ), Objects.toString( appointment.getReference( ), "" ) );
+                Appointment appointment = AppointmentService.findAppointmentById( nIdAppointment );
+                mapReferences.put( nIdAppointment, appointment == null ? "" : Objects.toString( appointment.getReference( ), "" ) );
             }
         }
         return mapReferences;

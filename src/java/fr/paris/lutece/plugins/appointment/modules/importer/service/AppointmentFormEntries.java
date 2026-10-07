@@ -112,7 +112,8 @@ final class AppointmentFormEntries
     }
 
     /**
-     * Loads the fields of a form that a workbook can fill: neither comments nor groups, nor the fields displayed in the back office only.
+     * Loads the fields of a form that a workbook can fill, those placed in a group included: neither comments nor groups, nor the conditional fields, nor
+     * the fields displayed in the back office only.
      *
      * @param nFormId
      *            the form
@@ -123,10 +124,11 @@ final class AppointmentFormEntries
     static AppointmentFormEntries load( int nFormId, ImportColumns columns )
     {
         List<Entry> listEntries = new ArrayList<>( );
-        // Through the service of the appointment plugin, which loads each field completely, with its choices
+        // Through the service of the appointment plugin, which loads each field completely, with its choices. The list holds the fields placed in a
+        // group too: they are kept, the group itself is not a field
         for ( Entry entry : EntryService.findListEntry( nFormId ) )
         {
-            if ( entry != null && entry.getParent( ) == null && entry.getFieldDepend( ) == null && !entry.isOnlyDisplayInBack( )
+            if ( entry != null && entry.getFieldDepend( ) == null && !entry.isOnlyDisplayInBack( )
                     && entry.getEntryType( ) != null && !Boolean.TRUE.equals( entry.getEntryType( ).getComment( ) )
                     && !Boolean.TRUE.equals( entry.getEntryType( ).getGroup( ) ) )
             {

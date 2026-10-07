@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 import fr.paris.lutece.portal.service.plugin.Plugin;
 import fr.paris.lutece.portal.service.plugin.PluginService;
 import fr.paris.lutece.portal.service.spring.SpringContextService;
+import fr.paris.lutece.util.sql.TransactionManager;
 
 /**
  * Home for uploaded import files, slot batches and source rows.
@@ -88,15 +89,19 @@ public final class AppointmentImportHome
      *
      * @param listFormIds
      *            the forms the files must belong to
+     * @param strFormId
+     *            optional form id
      * @param strFileName
      *            optional file name
      * @param strStatus
      *            optional status
+     * @param strDate
+     *            optional date (yyyy-MM-dd) of a slot of the file
      * @return the ids
      */
-    public static List<Integer> findFileIds( List<Integer> listFormIds, String strFileName, String strStatus )
+    public static List<Integer> findFileIds( List<Integer> listFormIds, String strFormId, String strFileName, String strStatus, String strDate )
     {
-        return _dao.selectFileIds( listFormIds, strFileName, strStatus, _plugin );
+        return _dao.selectFileIds( listFormIds, strFormId, strFileName, strStatus, strDate, _plugin );
     }
 
     /**
@@ -406,15 +411,32 @@ public final class AppointmentImportHome
     }
 
     /**
-     * Deletes the rows of a batch, then archives it.
+     * Deletes the rows of a completed batch and archives it, in one transaction. A batch retried meanwhile is left as it is, with its rows.
      *
      * @param nBatchId
      *            the {@code id_import_batch}
+     * @return true if the batch was purged, false if it is no longer completed
      */
-    public static void purgeBatch( int nBatchId )
+    public static boolean purgeBatch( int nBatchId )
     {
-        _dao.deleteAppointmentsByBatch( nBatchId, _plugin );
-        _dao.archiveBatch( nBatchId, _plugin );
+        TransactionManager.beginTransaction( _plugin );
+        try
+        {
+            // The rows, then the batch: the order of a retry, so that both never wait for each other
+            _dao.deleteAppointmentsByBatch( nBatchId, _plugin );
+            if ( !_dao.archiveBatch( nBatchId, _plugin ) )
+            {
+                TransactionManager.rollBack( _plugin );
+                return false;
+            }
+            TransactionManager.commitTransaction( _plugin );
+            return true;
+        }
+        catch( RuntimeException e )
+        {
+            TransactionManager.rollBack( _plugin, e );
+            throw e;
+        }
     }
 
     // Rows
