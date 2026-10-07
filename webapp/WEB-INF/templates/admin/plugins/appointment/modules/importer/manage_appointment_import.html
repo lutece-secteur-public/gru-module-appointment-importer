@@ -16,6 +16,9 @@
         <li class="nav-item"><a class="nav-link <#if active_tab == 'import'>active</#if>" href="jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp">#i18n{module.appointment.importer.tabImport}</a></li>
         <li class="nav-item"><a class="nav-link <#if active_tab == 'results'>active</#if>" href="jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?tab=results">#i18n{module.appointment.importer.tabResults}</a></li>
     </ul>
+    <#-- The messages of the actions are shown on both tabs: an action of the results tab redirects to it -->
+    <#list infos as msg><div class="mb-3"><@alert color='success'>${msg.message?html}</@alert></div></#list>
+    <#list errors as msg><div class="mb-3"><@alert color='danger'>${msg.message?html}</@alert></div></#list>
     <#if active_tab == 'import'>
         <div id="import-overlay" class="import-overlay"
              data-msg-upload="#i18n{module.appointment.importer.overlay.uploading}"
@@ -37,8 +40,6 @@
             <@formGroup labelFor='id_form' labelKey='#i18n{module.appointment.importer.form}' mandatory=true><@select name='id_form' id='id_form' items=forms default_value='${selected_form_id!}' /></@formGroup>
             <@formGroup labelFor='import_file' labelKey='#i18n{module.appointment.importer.file}' mandatory=true><@input type='file' name='import_file' id='import_file' params='accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"' /></@formGroup>
             <@button type='submit' name='action' value='doImportWorkbook' buttonIcon='upload' title='#i18n{module.appointment.importer.import}' color='primary' id='btn-import' />
-            <#list infos as msg><div class="mt-3"><@alert color='success'>${msg.message?html}</@alert></div></#list>
-            <#list errors as msg><div class="mt-3"><@alert color='danger'>${msg.message?html}</@alert></div></#list>
         </@tform>
         <script>
         ( function () {
