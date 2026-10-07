@@ -311,6 +311,25 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         AppointmentImportHome.updateBatchStatus( batch.getIdImportBatch( ), AppointmentImportStatus.COMPLETED_WITH_ERRORS );
     }
 
+    @Test
+    public void testRetryOfOnlyInterruptedRowsIsRefused( ) throws IOException
+    {
+        AppointmentImportFile file = register( "interrupted-only.xlsx", row( "XAVIER", "xavier@paris.fr", _monday.plusDays( 11 ), TEN, ELEVEN ) );
+        AppointmentImportBatch batch = AppointmentImportHome.findBatchesByFile( file.getIdImportFile( ) ).get( 0 );
+        AppointmentImportAppointment row = rowsByLine( file ).get( 2 );
+        AppointmentImportHome.markAppointmentError( row.getIdImportAppointment( ), AppointmentImportRetryService.INTERRUPTED, "interrupted" );
+        AppointmentImportHome.updateBatchStatus( batch.getIdImportBatch( ), AppointmentImportStatus.COMPLETED_WITH_ERRORS );
+        AppointmentImportHome.updateFileStatus( file.getIdImportFile( ), AppointmentImportStatus.COMPLETED_WITH_ERRORS );
+
+        // Nothing to retry with the others: the interrupted row is retried on its own, once checked
+        assertFalse( AppointmentImportRetryService.retryBatch( batch.getIdImportBatch( ) ) );
+        assertEquals( 0, AppointmentImportRetryService.retryFile( file.getIdImportFile( ) ) );
+        assertEquals( AppointmentImportStatus.COMPLETED_WITH_ERRORS, AppointmentImportHome.findBatch( batch.getIdImportBatch( ) ).getStatus( ) );
+        assertEquals( AppointmentImportStatus.COMPLETED_WITH_ERRORS, AppointmentImportHome.findFile( file.getIdImportFile( ) ).getStatus( ) );
+
+        assertTrue( AppointmentImportRetryService.retryRow( row.getIdImportAppointment( ) ) );
+    }
+
     private AppointmentImportFile register( String strName, Object [ ]... rows ) throws IOException
     {
         byte [ ] content = ImportTestUtils.workbook( HEADERS, rows );

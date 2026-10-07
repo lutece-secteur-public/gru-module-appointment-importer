@@ -66,6 +66,9 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     private static final String SQL_SELECT_FILE = SQL_COLS_FILE + " WHERE id_import_file = ?";
     private static final String SQL_SELECT_FILE_IDS = "SELECT id_import_file FROM appointment_import_file WHERE id_form IN (";
+    // A file stays pending while its batches are processed: "processing" means one of them is
+    private static final String SQL_AND_FILE_IS_PROCESSING = " AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b"
+            + " WHERE b.id_import_file = appointment_import_file.id_import_file AND b.status = '" + AppointmentImportStatus.PROCESSING + "' )";
     private static final String SQL_AND_FILE_HAS_DATE = " AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b"
             + " WHERE b.id_import_file = appointment_import_file.id_import_file AND b.starting_datetime >= ? AND b.starting_datetime < ? )";
     private static final String SQL_SELECT_FILES_BY_IDS = SQL_COLS_FILE + " WHERE id_import_file IN (";
@@ -206,10 +209,16 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
         {
             sbSql.append( SQL_AND_FILE_NAME );
         }
-        if ( StringUtils.isNotBlank( strStatus ) )
+        boolean bProcessing = AppointmentImportStatus.PROCESSING.equals( strStatus );
+        if ( bProcessing )
         {
-            sbSql.append( SQL_AND_STATUS );
+            sbSql.append( SQL_AND_FILE_IS_PROCESSING );
         }
+        else
+            if ( StringUtils.isNotBlank( strStatus ) )
+            {
+                sbSql.append( SQL_AND_STATUS );
+            }
         if ( StringUtils.isNotBlank( strDate ) )
         {
             sbSql.append( SQL_AND_FILE_HAS_DATE );
@@ -226,7 +235,7 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             {
                 daoUtil.setString( nIndex++, strFileName );
             }
-            if ( StringUtils.isNotBlank( strStatus ) )
+            if ( !bProcessing && StringUtils.isNotBlank( strStatus ) )
             {
                 daoUtil.setString( nIndex++, strStatus );
             }
