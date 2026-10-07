@@ -45,10 +45,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -60,10 +58,8 @@ import fr.paris.lutece.plugins.appointment.modules.importer.business.Appointment
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumn;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumns;
 import fr.paris.lutece.plugins.appointment.modules.importer.util.ImportTextUtils;
-import fr.paris.lutece.portal.business.user.parameter.DefaultUserParameterHome;
-import fr.paris.lutece.portal.service.admin.AdminUserService;
-import fr.paris.lutece.portal.service.i18n.I18nService;
 
 /**
  * Receives the cells of the first sheet row by row and validates them.
@@ -78,23 +74,31 @@ final class AppointmentSheetReader implements SheetContentsHandler
     private static final String MESSAGE_FIELD_LINE = "module.appointment.importer.line";
     private static final String ERROR_WORKBOOK_UNREADABLE = "module.appointment.importer.error.workbook.unreadable";
     private static final String ERROR_WORKBOOK_NO_HEADER = "module.appointment.importer.error.workbook.noHeader";
+    private static final String ERROR_WORKBOOK_TOO_MANY_ROWS = "module.appointment.importer.error.workbook.tooManyRows";
     private static final String ERROR_COLUMN_MISSING = "module.appointment.importer.error.column.missing";
     private static final String ERROR_COLUMN_DUPLICATE = "module.appointment.importer.error.column.duplicate";
     private static final String ERROR_VALUE_REQUIRED = "module.appointment.importer.error.value.required";
+    private static final String ERROR_VALUE_TOO_LONG = "module.appointment.importer.error.value.tooLong";
     private static final String ERROR_VALUE_EMAIL = "module.appointment.importer.error.value.email";
+    private static final String ERROR_VALUE_PHONE = "module.appointment.importer.error.value.phone";
     private static final String ERROR_VALUE_DATE = "module.appointment.importer.error.value.date";
+    private static final String ERROR_VALUE_BIRTH_DATE_FUTURE = "module.appointment.importer.error.value.birthDateFuture";
     private static final String ERROR_VALUE_TIME = "module.appointment.importer.error.value.time";
     private static final String ERROR_VALUE_TIME_ORDER = "module.appointment.importer.error.value.timeOrder";
+    private static final String ERROR_VALUE_PAST = "module.appointment.importer.error.value.past";
     private static final String ERROR_ROW_DUPLICATE = "module.appointment.importer.error.row.duplicate";
 
     // Formats
     private static final DateTimeFormatter FORMAT_DATE_INPUT = DateTimeFormatter.ofPattern( "d/M/uuuu" ).withResolverStyle( ResolverStyle.STRICT );
     private static final DateTimeFormatter FORMAT_DATE_OUTPUT = DateTimeFormatter.ofPattern( "dd/MM/uuuu" );
     private static final DateTimeFormatter FORMAT_TIME_INPUT = DateTimeFormatter.ofPattern( "H:mm[:ss]" ).withResolverStyle( ResolverStyle.STRICT );
-    private static final Pattern PATTERN_PHONE_SEPARATORS = Pattern.compile( "[^0-9+]" );
+    private static final Pattern PATTERN_PHONE_SEPARATORS = Pattern.compile( "[\\s.\\-/()]" );
+    // A French number typed in a numeric cell loses its leading zero: 0612345678 is read 612345678
+    private static final Pattern PATTERN_PHONE_WITHOUT_LEADING_ZERO = Pattern.compile( "[1-9][0-9]{8}" );
     private static final String KEY_SEPARATOR = "\u0000";
 
-    private final Locale _locale;
+    private final ImportValidationSettings _settings;
+    private final ImportColumns _columns;
     private final DateCapturingFormatter _formatter = new DateCapturingFormatter( );
     private final List<AppointmentValidationError> _workbookErrors = new ArrayList<>( );
     private final List<AppointmentValidationError> _rowErrors = new ArrayList<>( );
@@ -103,34 +107,17 @@ final class AppointmentSheetReader implements SheetContentsHandler
     private final Map<Integer, String> _otherColumns = new LinkedHashMap<>( );
     private final Map<String, Integer> _rowKeys = new HashMap<>( );
     private final Map<Integer, ImportCell> _currentRow = new LinkedHashMap<>( );
-    private final Predicate<String> _emailChecker;
     private boolean _bHeaderRead;
+    private int _nDataRows;
 
     /**
-     * @param locale the locale used to localise validation error messages
+     * @param settings
+     *            what the validation depends on
      */
-    AppointmentSheetReader( Locale locale )
+    AppointmentSheetReader( ImportValidationSettings settings )
     {
-        _locale = locale;
-        _emailChecker = buildEmailChecker( );
-    }
-
-    /**
-     * Pre-compiles the email pattern once so that per-row validation avoids
-     * re-fetching from the datastore and re-compiling the regex on every call.
-     * Falls back to {@link AdminUserService#checkEmail} when no manual pattern is configured
-     * (RegularExpression-based or unconfigured setups).
-     */
-    private static Predicate<String> buildEmailChecker( )
-    {
-        String strPattern = DefaultUserParameterHome.findByKey( AdminUserService.DSKEY_EMAIL_PATTERN );
-        if ( strPattern != null && !strPattern.isEmpty( ) )
-        {
-            Pattern compiled = Pattern.compile( strPattern );
-            return strEmail -> compiled.matcher( strEmail ).matches( );
-        }
-        // Pattern not set manually (RegularExpressionService path or unconfigured): fall back per-call
-        return AdminUserService::checkEmail;
+        _settings = settings;
+        _columns = settings.getColumns( );
     }
 
     /**
@@ -179,10 +166,17 @@ final class AppointmentSheetReader implements SheetContentsHandler
             return;
         }
         // Rows are only checked against a valid header
-        if ( _workbookErrors.isEmpty( ) && !isBlankRow( ) )
+        if ( !_workbookErrors.isEmpty( ) || isBlankRow( ) )
         {
-            readRow( nRowNum + 1 );
+            return;
         }
+        _nDataRows++;
+        if ( _nDataRows > _settings.getMaxRows( ) )
+        {
+            // The rows beyond the limit are counted, not kept, so that a huge file does not fill the memory
+            return;
+        }
+        readRow( nRowNum + 1 );
     }
 
     /**
@@ -194,7 +188,13 @@ final class AppointmentSheetReader implements SheetContentsHandler
     {
         if ( !_bHeaderRead )
         {
-            _workbookErrors.add( AppointmentValidationError.workbook( message( MESSAGE_FIELD_WORKBOOK ), message( ERROR_WORKBOOK_NO_HEADER ) ) );
+            _workbookErrors.add( AppointmentValidationError.workbook( _settings.message( MESSAGE_FIELD_WORKBOOK ),
+                    _settings.message( ERROR_WORKBOOK_NO_HEADER ) ) );
+        }
+        if ( _nDataRows > _settings.getMaxRows( ) )
+        {
+            _workbookErrors.add( AppointmentValidationError.workbook( _settings.message( MESSAGE_FIELD_WORKBOOK ),
+                    _settings.message( ERROR_WORKBOOK_TOO_MANY_ROWS, Integer.toString( _nDataRows ), Integer.toString( _settings.getMaxRows( ) ) ) ) );
         }
         List<AppointmentValidationError> listErrors = new ArrayList<>( _workbookErrors );
         listErrors.addAll( _rowErrors );
@@ -210,14 +210,14 @@ final class AppointmentSheetReader implements SheetContentsHandler
      */
     AppointmentExcelValidationResult unreadable( )
     {
-        AppointmentValidationError error = AppointmentValidationError.workbook( message( MESSAGE_FIELD_WORKBOOK ), message( ERROR_WORKBOOK_UNREADABLE ) );
+        AppointmentValidationError error = AppointmentValidationError.workbook( _settings.message( MESSAGE_FIELD_WORKBOOK ),
+                _settings.message( ERROR_WORKBOOK_UNREADABLE ) );
 
         return new AppointmentExcelValidationResult( List.of( ), List.of( error ), Set.of( ) );
     }
 
     /**
-     * Parses the header row: maps each cell to a known {@link ImportColumn} (standard columns)
-     * or stores it in {@code _otherColumns} (extra form fields).
+     * Parses the header row: maps each cell to a standard column, or keeps it as a form field.
      * Detects duplicate column names and missing mandatory columns and records them as workbook-level errors.
      */
     private void readHeader( )
@@ -231,12 +231,14 @@ final class AppointmentSheetReader implements SheetContentsHandler
             {
                 continue;
             }
-            if ( mapHeadersByNormalizedName.putIfAbsent( strNormalizedHeader, strHeader ) != null )
+            ImportColumn column = _columns.fromHeader( strHeader );
+            // A column given both by its header and by its alias is a duplicate too
+            String strDuplicateKey = column != null ? column.name( ) : strNormalizedHeader;
+            if ( mapHeadersByNormalizedName.putIfAbsent( strDuplicateKey, strHeader ) != null )
             {
-                _workbookErrors.add( AppointmentValidationError.workbook( strHeader, message( ERROR_COLUMN_DUPLICATE ) ) );
+                _workbookErrors.add( AppointmentValidationError.workbook( strHeader, _settings.message( ERROR_COLUMN_DUPLICATE ) ) );
                 continue;
             }
-            ImportColumn column = ImportColumn.fromNormalizedHeader( strNormalizedHeader );
             if ( column != null )
             {
                 _standardColumns.put( column, cell.getKey( ) );
@@ -248,9 +250,9 @@ final class AppointmentSheetReader implements SheetContentsHandler
         }
         for ( ImportColumn column : ImportColumn.values( ) )
         {
-            if ( column.isMandatory( ) && !_standardColumns.containsKey( column ) )
+            if ( _columns.isMandatory( column ) && !_standardColumns.containsKey( column ) )
             {
-                _workbookErrors.add( AppointmentValidationError.workbook( column.getHeader( ), message( ERROR_COLUMN_MISSING ) ) );
+                _workbookErrors.add( AppointmentValidationError.workbook( _columns.getHeader( column ), _settings.message( ERROR_COLUMN_MISSING ) ) );
             }
         }
     }
@@ -265,15 +267,19 @@ final class AppointmentSheetReader implements SheetContentsHandler
     private void readRow( int nLine )
     {
         int nErrorCount = _rowErrors.size( );
-        String strLastName = readText( ImportColumn.LAST_NAME, nLine );
-        String strFirstName = readText( ImportColumn.FIRST_NAME, nLine );
+        String strLastName = readName( ImportColumn.LAST_NAME, nLine );
+        String strFirstName = readName( ImportColumn.FIRST_NAME, nLine );
         String strEmail = readText( ImportColumn.EMAIL, nLine );
-        if ( !strEmail.isEmpty( ) && !_emailChecker.test( strEmail ) )
+        if ( !strEmail.isEmpty( ) && !_settings.isValidEmail( strEmail ) )
         {
             addRowError( nLine, ImportColumn.EMAIL, ERROR_VALUE_EMAIL );
         }
-        String strPhoneNumber = getCell( ImportColumn.PHONE_NUMBER ).getText( );
+        String strPhoneNumber = readPhoneNumber( nLine );
         LocalDate birthDate = readDate( ImportColumn.BIRTH_DATE, nLine );
+        if ( birthDate != null && birthDate.isAfter( _settings.getNow( ).toLocalDate( ) ) )
+        {
+            addRowError( nLine, ImportColumn.BIRTH_DATE, ERROR_VALUE_BIRTH_DATE_FUTURE );
+        }
         LocalDate date = readDate( ImportColumn.DATE, nLine );
         LocalTime startingTime = readTime( ImportColumn.STARTING_TIME, nLine );
         LocalTime endingTime = readTime( ImportColumn.ENDING_TIME, nLine );
@@ -281,19 +287,23 @@ final class AppointmentSheetReader implements SheetContentsHandler
         {
             addRowError( nLine, ImportColumn.ENDING_TIME, ERROR_VALUE_TIME_ORDER );
         }
+        if ( date != null && startingTime != null && !date.atTime( startingTime ).isAfter( _settings.getNow( ) ) )
+        {
+            addRowError( nLine, ImportColumn.DATE, ERROR_VALUE_PAST );
+        }
         if ( _rowErrors.size( ) > nErrorCount )
         {
             return;
         }
 
-        String strBirthDate = birthDate.format( FORMAT_DATE_OUTPUT );
+        String strBirthDate = birthDate == null ? "" : birthDate.format( FORMAT_DATE_OUTPUT );
         String strRowKey = String.join( KEY_SEPARATOR, ImportTextUtils.normalize( strLastName ), ImportTextUtils.normalize( strFirstName ),
-                ImportTextUtils.normalize( strEmail ), PATTERN_PHONE_SEPARATORS.matcher( strPhoneNumber ).replaceAll( "" ), strBirthDate,
-                date.toString( ), startingTime.toString( ), endingTime.toString( ) );
+                ImportTextUtils.normalize( strEmail ), strPhoneNumber, strBirthDate, date.toString( ), startingTime.toString( ), endingTime.toString( ) );
         Integer nFirstLine = _rowKeys.putIfAbsent( strRowKey, nLine );
         if ( nFirstLine != null )
         {
-            _rowErrors.add( AppointmentValidationError.row( nLine, message( MESSAGE_FIELD_LINE ), message( ERROR_ROW_DUPLICATE, Integer.toString( nFirstLine ) ) ) );
+            _rowErrors.add( AppointmentValidationError.row( nLine, _settings.message( MESSAGE_FIELD_LINE ),
+                    _settings.message( ERROR_ROW_DUPLICATE, Integer.toString( nFirstLine ) ) ) );
 
             return;
         }
@@ -322,7 +332,7 @@ final class AppointmentSheetReader implements SheetContentsHandler
     private String readText( ImportColumn column, int nLine )
     {
         String strValue = getCell( column ).getText( );
-        if ( strValue.isEmpty( ) && column.isMandatory( ) )
+        if ( strValue.isEmpty( ) && _columns.isMandatory( column ) )
         {
             addRowError( nLine, column, ERROR_VALUE_REQUIRED );
         }
@@ -330,16 +340,54 @@ final class AppointmentSheetReader implements SheetContentsHandler
         return strValue;
     }
 
+    /**
+     * Reads a last or first name, recording an error if it is missing or too long.
+     *
+     * @param column the column to read
+     * @param nLine  1-based row number used in error messages
+     * @return the trimmed cell text, or an empty string
+     */
+    private String readName( ImportColumn column, int nLine )
+    {
+        String strValue = readText( column, nLine );
+        if ( strValue.length( ) > _settings.getMaxNameLength( ) )
+        {
+            _rowErrors.add( AppointmentValidationError.row( nLine, _columns.getHeader( column ),
+                    _settings.message( ERROR_VALUE_TOO_LONG, Integer.toString( _settings.getMaxNameLength( ) ) ) ) );
+        }
 
+        return strValue;
+    }
+
+    /**
+     * Reads the phone number without its separators, restoring the leading zero a numeric cell drops, and checks its format.
+     *
+     * @param nLine 1-based row number used in error messages
+     * @return the phone number, or an empty string
+     */
+    private String readPhoneNumber( int nLine )
+    {
+        String strPhoneNumber = PATTERN_PHONE_SEPARATORS.matcher( readText( ImportColumn.PHONE_NUMBER, nLine ) ).replaceAll( "" );
+        if ( PATTERN_PHONE_WITHOUT_LEADING_ZERO.matcher( strPhoneNumber ).matches( ) )
+        {
+            strPhoneNumber = "0" + strPhoneNumber;
+        }
+        if ( !strPhoneNumber.isEmpty( ) && !_settings.isValidPhoneNumber( strPhoneNumber ) )
+        {
+            addRowError( nLine, ImportColumn.PHONE_NUMBER, ERROR_VALUE_PHONE );
+        }
+
+        return strPhoneNumber;
+    }
 
     /**
      * Reads a date cell: uses the POI-captured {@link LocalDateTime} when the cell is a native Excel date,
      * otherwise falls back to text parsing ({@code dd/MM/yyyy}).
-     * Appends a row error if the cell is empty or unparseable.
+     * Appends a row error if the cell is unparseable, or empty in a mandatory column.
      *
      * @param column the column to read
      * @param nLine  1-based row number used in error messages
-     * @return the parsed date, or {@code null} if validation failed
+     * @return the parsed date, or {@code null} if the cell is empty or invalid
      */
     private LocalDate readDate( ImportColumn column, int nLine )
     {
@@ -348,10 +396,8 @@ final class AppointmentSheetReader implements SheetContentsHandler
         {
             return cell.getDateTime( ).toLocalDate( );
         }
-        if ( cell.getText( ).isEmpty( ) )
+        if ( readText( column, nLine ).isEmpty( ) )
         {
-            addRowError( nLine, column, ERROR_VALUE_REQUIRED );
-
             return null;
         }
         LocalDate date = parseDate( cell.getText( ) );
@@ -379,10 +425,8 @@ final class AppointmentSheetReader implements SheetContentsHandler
         {
             return cell.getDateTime( ).toLocalTime( );
         }
-        if ( cell.getText( ).isEmpty( ) )
+        if ( readText( column, nLine ).isEmpty( ) )
         {
-            addRowError( nLine, column, ERROR_VALUE_REQUIRED );
-
             return null;
         }
         LocalTime time = parseTime( cell.getText( ) );
@@ -445,19 +489,7 @@ final class AppointmentSheetReader implements SheetContentsHandler
      */
     private void addRowError( int nLine, ImportColumn column, String strMessageKey )
     {
-        _rowErrors.add( AppointmentValidationError.row( nLine, column.getHeader( ), message( strMessageKey ) ) );
-    }
-
-    /**
-     * Returns the localized message for the given i18n key.
-     *
-     * @param strKey    the i18n key
-     * @param arguments optional format arguments
-     * @return the localized string
-     */
-    private String message( String strKey, Object... arguments )
-    {
-        return I18nService.getLocalizedString( strKey, arguments, _locale );
+        _rowErrors.add( AppointmentValidationError.row( nLine, _columns.getHeader( column ), _settings.message( strMessageKey ) ) );
     }
 
     /**

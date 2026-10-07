@@ -26,6 +26,10 @@
         </admin-feature>
     </admin-features>
 
+    <admin-css-stylesheets>
+        <admin-css-stylesheet>css/admin/plugins/appointment/modules/importer/appointment-importer.css</admin-css-stylesheet>
+    </admin-css-stylesheets>
+
     <daemons>
         <daemon>
             <daemon-id>appointmentImportDaemon</daemon-id>

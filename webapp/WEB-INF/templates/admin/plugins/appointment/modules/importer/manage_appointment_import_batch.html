@@ -9,6 +9,7 @@
 <#macro rowStatusBadge status>
     <#if status == 'CREATED'><@tag color='success'>#i18n{module.appointment.importer.status.CREATED}</@tag>
     <#elseif status == 'ERROR'><@tag color='danger'>#i18n{module.appointment.importer.status.ERROR}</@tag>
+    <#elseif status == 'PROCESSING'><@tag color='warning'>#i18n{module.appointment.importer.status.PROCESSING}</@tag>
     <#elseif status == 'PENDING'><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag>
     <#else><@tag color='secondary'>${status?html}</@tag></#if>
 </#macro>
@@ -50,10 +51,10 @@
         <@table class='table-sm table-striped table-hover table-vcenter'>
             <thead>
                 <tr>
-                    <th class="text-center" style="width:90px" title="#i18n{module.appointment.importer.columnLineTooltip}">#i18n{module.appointment.importer.columnLine}</th>
-                    <th style="width:180px">#i18n{module.appointment.importer.filterStatus}</th>
+                    <th class="text-center import-col-line" title="#i18n{module.appointment.importer.columnLineTooltip}">#i18n{module.appointment.importer.columnLine}</th>
+                    <th class="import-col-status">#i18n{module.appointment.importer.filterStatus}</th>
                     <th>#i18n{module.appointment.importer.columnError}</th>
-                    <th class="text-end" style="width:180px">#i18n{module.appointment.importer.columnAppointment}</th>
+                    <th class="text-end import-col-appointment">#i18n{module.appointment.importer.columnAppointment}</th>
                 </tr>
             </thead>
             <tbody>

@@ -35,77 +35,70 @@ package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
-
-import org.apache.commons.lang3.StringEscapeUtils;
 
 import fr.paris.lutece.plugins.appointment.business.form.Form;
 import fr.paris.lutece.plugins.appointment.business.planning.WeekDefinition;
 import fr.paris.lutece.plugins.appointment.business.rule.ReservationRule;
 import fr.paris.lutece.plugins.appointment.business.slot.Slot;
 import fr.paris.lutece.plugins.appointment.business.user.User;
-import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumn;
-import fr.paris.lutece.plugins.appointment.modules.importer.util.ImportTextUtils;
-import fr.paris.lutece.plugins.appointment.service.AppointmentPlugin;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.service.AppointmentService;
-import fr.paris.lutece.plugins.appointment.service.EntryService;
 import fr.paris.lutece.plugins.appointment.service.FormService;
 import fr.paris.lutece.plugins.appointment.service.ReservationRuleService;
 import fr.paris.lutece.plugins.appointment.service.SlotSafeService;
 import fr.paris.lutece.plugins.appointment.service.SlotService;
 import fr.paris.lutece.plugins.appointment.service.WeekDefinitionService;
 import fr.paris.lutece.plugins.appointment.web.dto.AppointmentDTO;
-import fr.paris.lutece.plugins.genericattributes.business.Entry;
-import fr.paris.lutece.plugins.genericattributes.business.Response;
-import fr.paris.lutece.util.sql.TransactionManager;
 
 /**
  * Creates appointments through the Appointment plugin service.
  */
 public final class AppointmentServiceImporter
 {
-    private static final String IMPORT_ACCESS_CODE = "admin";
     private static final DateTimeFormatter FORMAT_DT = DateTimeFormatter.ofPattern( "dd/MM/uuuu HH:mm" );
 
     /**
      * Validates the form and prepares (creates if needed) the slots for the given interval.
-     * Must be called once per batch before calling {@link #importAppointment(int, Map, List)}.
+     * Must be called once per batch before calling {@link #importAppointment(int, String, Map, Map, AppointmentFormEntries, List)}.
      *
      * @param nFormId    the form identifier
      * @param dtStarting start of the slot interval
      * @param dtEnding   end of the slot interval
      * @return the list of persisted slots covering the interval
-     * @throws IllegalArgumentException if the form is inactive or the slots are unavailable
+     * @throws AppointmentImportException if the form is inactive or the slots are unavailable
      */
     public List<Slot> prepareSlots( int nFormId, LocalDateTime dtStarting, LocalDateTime dtEnding )
     {
         validateForm( nFormId );
-        return findAndPersistSlots( nFormId, dtStarting, dtEnding );
+        return findSlots( nFormId, dtStarting, dtEnding ).stream( )
+                .map( slot -> slot.getIdSlot( ) == 0 ? SlotSafeService.createSlot( slot ) : SlotService.findSlotById( slot.getIdSlot( ) ) )
+                .collect( Collectors.toList( ) );
     }
 
     /**
-     * Creates an appointment from a map of generic attributes and a pre-prepared list of slots.
-     * Every database update for this row is committed together or rolled back together.
+     * Creates an appointment from the values of a row and a pre-prepared list of slots.
+     * The appointment plugin saves it in its own transaction, under a lock on each slot: this method must not open another one around it, otherwise the
+     * lock would be released before the data is committed.
      *
      * @param nFormId              the form identifier
-     * @param mapGenericAttributes the generic attribute values
+     * @param strAdminAccessCode   the access code of the administrator who uploaded the file
+     * @param mapGenericAttributes the values of the standard columns
+     * @param mapFormFields        the values of the other columns
+     * @param formEntries          the fields of the form
      * @param listSlots            the slots prepared by {@link #prepareSlots(int, LocalDateTime, LocalDateTime)}
      * @return created appointment identifier
      */
-    public int importAppointment( int nFormId, Map<String, String> mapGenericAttributes, List<Slot> listSlots )
+    public int importAppointment( int nFormId, String strAdminAccessCode, Map<String, String> mapGenericAttributes, Map<String, String> mapFormFields,
+            AppointmentFormEntries formEntries, List<Slot> listSlots )
     {
-        String strLastName = required( mapGenericAttributes, "lastName" );
-        String strFirstName = required( mapGenericAttributes, "firstName" );
-        String strEmail = required( mapGenericAttributes, "email" );
-        String strPhoneNumber = mapGenericAttributes.getOrDefault( "phoneNumber", "" );
-        TransactionManager.beginTransaction( AppointmentPlugin.getPlugin( ) );
+        String strLastName = required( mapGenericAttributes, AppointmentImportRow.ATTRIBUTE_LAST_NAME );
+        String strFirstName = required( mapGenericAttributes, AppointmentImportRow.ATTRIBUTE_FIRST_NAME );
+        String strEmail = required( mapGenericAttributes, AppointmentImportRow.ATTRIBUTE_EMAIL );
+        String strPhoneNumber = mapGenericAttributes.getOrDefault( AppointmentImportRow.ATTRIBUTE_PHONE_NUMBER, "" );
         try
         {
             User user = new User( );
@@ -123,76 +116,15 @@ public final class AppointmentServiceImporter
             appointment.setSlot( listSlots );
             appointment.setNbBookedSeats( 1 );
             appointment.setOverbookingAllowed( false );
-            appointment.setAdminUserCreate( IMPORT_ACCESS_CODE );
-            appointment.setListResponse( responses( nFormId, mapGenericAttributes ) );
-            int nAppointmentId = AppointmentService.saveAppointment( appointment );
-            TransactionManager.commitTransaction( AppointmentPlugin.getPlugin( ) );
-            return nAppointmentId;
+            appointment.setAdminUserCreate( strAdminAccessCode );
+            appointment.setListResponse( formEntries.buildResponses( mapGenericAttributes, mapFormFields ) );
+            return AppointmentService.saveAppointment( appointment );
         }
         catch( RuntimeException e )
         {
-            TransactionManager.rollBack( AppointmentPlugin.getPlugin( ), e );
-            throw new AppointmentImportException( AppointmentImportException.SAVE_FAILED,
-                    "module.appointment.importer.error.import.saveFailed", e, e.getMessage( ) );
+            throw new AppointmentImportException( AppointmentImportException.SAVE_FAILED, "module.appointment.importer.error.import.saveFailed", e,
+                    e.getMessage( ) );
         }
-    }
-
-    /**
-     * Builds the list of generic-attribute responses from the row values, matching columns by code or title.
-     *
-     * @param nFormId the form identifier
-     * @param mapAll  all attribute values for the row (generic + extra fields)
-     * @return the responses to attach to the appointment
-     */
-    private List<Response> responses( int nFormId, Map<String, String> mapAll )
-    {
-
-        Map<String, Entry> mapEntries = new HashMap<>( );
-        for ( Entry entry : EntryService.getFilter( nFormId, true ) )
-        {
-            mapEntries.put( ImportTextUtils.normalize( entry.getCode( ) ), entry );
-            mapEntries.put( ImportTextUtils.normalize( StringEscapeUtils.unescapeHtml4( entry.getTitle( ) ) ), entry );
-        }
-
-        List<Response> listResult = new ArrayList<>( );
-        Set<String> standardAttributeKeys = new HashSet<>( );
-
-        for ( ImportColumn column : ImportColumn.values( ) )
-        {
-            if ( column.getAttributeKey( ) == null )
-            {
-                continue;
-            }
-            standardAttributeKeys.add( column.getAttributeKey( ) );
-            Entry entry = mapEntries.get( column.getNormalizedHeader( ) );
-            String strValue = mapAll.getOrDefault( column.getAttributeKey( ), "" );
-            if ( entry != null && !strValue.isEmpty( ) )
-            {
-                Response response = new Response( );
-                response.setEntry( entry );
-                response.setResponseValue( strValue );
-                listResult.add( response );
-            }
-        }
-
-        // Extra form fields: keyed by their display title (as read from the Excel header)
-        for ( Map.Entry<String, String> e : mapAll.entrySet( ) )
-        {
-            if ( standardAttributeKeys.contains( e.getKey( ) ) || e.getValue( ).isEmpty( ) )
-            {
-                continue;
-            }
-            Entry entry = mapEntries.get( ImportTextUtils.normalize( e.getKey( ) ) );
-            if ( entry != null )
-            {
-                Response response = new Response( );
-                response.setEntry( entry );
-                response.setResponseValue( e.getValue( ) );
-                listResult.add( response );
-            }
-        }
-
-        return listResult;
     }
 
     /**
@@ -228,14 +160,14 @@ public final class AppointmentServiceImporter
     }
 
     /**
-     * Finds slots covering the given interval and persists any that don't exist yet.
+     * Finds the slots covering the given interval, persisted or not, and checks them.
      *
      * @param nFormId    the form identifier
      * @param dtStarting start of the interval
      * @param dtEnding   end of the interval
-     * @return the persisted slots, sorted by starting datetime
+     * @return the slots, sorted by starting datetime
      */
-    private List<Slot> findAndPersistSlots( int nFormId, LocalDateTime dtStarting, LocalDateTime dtEnding )
+    private List<Slot> findSlots( int nFormId, LocalDateTime dtStarting, LocalDateTime dtEnding )
     {
         List<WeekDefinition> listWeekDefinitions = WeekDefinitionService.findListWeekDefinition( nFormId );
         Map<WeekDefinition, ReservationRule> mapReservationRules = ReservationRuleService.findAllReservationRule( nFormId, listWeekDefinitions );
@@ -246,9 +178,7 @@ public final class AppointmentServiceImporter
                 .sorted( Comparator.comparing( Slot::getStartingDateTime ) )
                 .collect( Collectors.toList( ) );
         validateSlots( listSlots, dtStarting, dtEnding );
-        return listSlots.stream( )
-                .map( slot -> slot.getIdSlot( ) == 0 ? SlotSafeService.createSlot( slot ) : SlotService.findSlotById( slot.getIdSlot( ) ) )
-                .collect( Collectors.toList( ) );
+        return listSlots;
     }
 
     /**

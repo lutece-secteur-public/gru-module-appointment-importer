@@ -43,7 +43,7 @@ import java.util.regex.Pattern;
 public final class ImportTextUtils
 {
     private static final Pattern PATTERN_DIACRITICS = Pattern.compile( "\\p{M}+" );
-    private static final Pattern PATTERN_SPACES = Pattern.compile( "[\\s\\u00A0]+" );
+    private static final Pattern PATTERN_SPACES = Pattern.compile( "[\\s\\u00A0_]+" );
 
     /**
      * Private constructor - this class need not be instantiated
@@ -53,7 +53,7 @@ public final class ImportTextUtils
     }
 
     /**
-     * Normalizes a text for comparison: accents removed, blanks (including non-breaking spaces) trimmed and collapsed, lower case.
+     * Normalizes a text for comparison: accents removed, blanks (including non-breaking spaces and underscores) trimmed and collapsed, lower case.
      *
      * @param strValue
      *            the text, may be null

@@ -37,58 +37,59 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.portal.service.daemon.Daemon;
 import fr.paris.lutece.portal.service.util.AppLogService;
 import fr.paris.lutece.portal.service.util.AppPropertiesService;
 
 /**
- * Purges completed import batches older than the configured retention period.
- * Client data (appointments) is deleted; the batch record is kept with status ARCHIVED.
- * When all batches of a file are archived, the file record is archived.
+ * Purges the personal data of the imports older than the configured retention period.
+ * <ul>
+ * <li>A completed batch loses its rows and is kept with status ARCHIVED; when all the batches of a file are archived, the file is archived.</li>
+ * <li>A file rejected at validation loses its validation report, which quotes the rows, and is archived.</li>
+ * </ul>
  */
 public final class AppointmentImportPurgeDaemon extends Daemon
 {
     private static final String PROPERTY_RETENTION_DAYS = "appointment-importer.purge.retentionDays";
     private static final int DEFAULT_RETENTION_DAYS = 90;
 
-    /**
-     * Finds all completed batches older than the configured retention period and purges them one by one.
-     */
     @Override
     public synchronized void run( )
     {
         int nRetentionDays = AppPropertiesService.getPropertyInt( PROPERTY_RETENTION_DAYS, DEFAULT_RETENTION_DAYS );
         LocalDateTime dtThreshold = LocalDateTime.now( ).minusDays( nRetentionDays );
-        List<Integer> listBatchIds = AppointmentImportHome.findBatchIdsToPurge( dtThreshold );
-        if ( listBatchIds.isEmpty( ) )
-        {
-            AppLogService.info( "Appointment import purge: nothing to purge (retention: " + nRetentionDays + " days)" );
-            return;
-        }
-        int nSuccess = 0;
+        int nBatches = 0;
+        int nFiles = 0;
         int nErrors = 0;
-        for ( int nBatchId : listBatchIds )
+        for ( int nBatchId : AppointmentImportHome.findBatchIdsToPurge( dtThreshold ) )
         {
-            if ( purge( nBatchId ) )
+            if ( purgeBatch( nBatchId ) )
             {
-                nSuccess++;
+                nBatches++;
             }
             else
             {
                 nErrors++;
             }
         }
-        AppLogService.info( "Appointment import purge: " + nSuccess + " batch(es) archived, "
-                + nErrors + " error(s) (retention: " + nRetentionDays + " days)" );
+        List<Integer> listRejectedFileIds = AppointmentImportHome.findRejectedFileIdsToPurge( dtThreshold );
+        for ( int nFileId : listRejectedFileIds )
+        {
+            AppointmentImportHome.archiveFile( nFileId );
+            nFiles++;
+        }
+        setLastRunLogs( "Appointment import purge: " + nBatches + " batch(es) and " + nFiles + " rejected file(s) archived, " + nErrors
+                + " error(s) (retention: " + nRetentionDays + " days)" );
     }
 
     /**
-     * Deletes appointment rows for the given batch, archives the batch, then checks if the parent file can be archived too.
+     * Deletes appointment rows for the given batch, archives the batch, then archives the parent file if all its batches are archived.
      *
      * @param nBatchId the {@code id_import_batch} to purge
      * @return true if the batch was successfully archived, false on error
      */
-    private boolean purge( int nBatchId )
+    private boolean purgeBatch( int nBatchId )
     {
         try
         {
@@ -97,9 +98,11 @@ public final class AppointmentImportPurgeDaemon extends Daemon
             {
                 return false;
             }
-            AppointmentImportHome.purgeAppointmentsByBatch( nBatchId );
-            AppointmentImportHome.archiveBatch( nBatchId );
-            archiveFileIfComplete( batch.getIdImportFile( ) );
+            AppointmentImportHome.purgeBatch( nBatchId );
+            if ( AppointmentImportHome.fileAllBatchesArchived( batch.getIdImportFile( ) ) )
+            {
+                AppointmentImportHome.archiveFile( batch.getIdImportFile( ) );
+            }
             return true;
         }
         catch( RuntimeException e )
@@ -107,19 +110,5 @@ public final class AppointmentImportPurgeDaemon extends Daemon
             AppLogService.error( "Appointment import purge: error purging batch " + nBatchId, e );
             return false;
         }
-    }
-
-    /**
-     * Archives the file record if all its batches are already archived.
-     *
-     * @param nFileId the {@code id_import_file} to check and potentially archive
-     */
-    private void archiveFileIfComplete( int nFileId )
-    {
-        if ( !AppointmentImportHome.fileAllBatchesArchived( nFileId ) )
-        {
-            return;
-        }
-        AppointmentImportHome.archiveFile( nFileId );
     }
 }

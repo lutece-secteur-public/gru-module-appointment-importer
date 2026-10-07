@@ -40,7 +40,7 @@ import fr.paris.lutece.portal.service.i18n.I18nService;
 /**
  * Thrown by AppointmentServiceImporter when an appointment cannot be created.
  * Carries a functional error code readable by the daemon and stored in the report.
- * Messages are resolved via I18nService with Locale.FRANCE (daemon context, no user locale available).
+ * The message is resolved in the default locale of Lutece (the daemon has no user locale); {@link #getMessage(Locale)} resolves it in another one.
  */
 final class AppointmentImportException extends RuntimeException
 {
@@ -58,38 +58,59 @@ final class AppointmentImportException extends RuntimeException
     /** Appointment creation failed for an unexpected reason. */
     static final String SAVE_FAILED = "SAVE_FAILED";
 
+    /** The processing of the row was interrupted: the appointment may or may not have been created. */
+    static final String INTERRUPTED = "INTERRUPTED";
+
     private final String _strCode;
+    private final String _strMessageKey;
+    private final transient Object [ ] _arguments;
 
     /**
-     * @param strCode   one of the constants defined in this class
-     * @param strMsgKey i18n key for the human-readable message stored in the report
-     * @param args      optional MessageFormat arguments for the key
+     * @param strCode
+     *            the functional error code
+     * @param strMessageKey
+     *            the i18n key of the message
+     * @param arguments
+     *            the arguments of the message
      */
-    AppointmentImportException( String strCode, String strMsgKey, Object... args )
+    AppointmentImportException( String strCode, String strMessageKey, Object... arguments )
     {
-        super( I18nService.getLocalizedString( strMsgKey, args, Locale.FRANCE ) );
-        _strCode = strCode;
+        this( strCode, strMessageKey, null, arguments );
     }
 
     /**
-     * @param strCode   one of the constants defined in this class
-     * @param strMsgKey i18n key for the human-readable message stored in the report
-     * @param cause     the underlying exception, forwarded to the log
-     * @param args      optional MessageFormat arguments for the key
+     * @param strCode
+     *            the functional error code
+     * @param strMessageKey
+     *            the i18n key of the message
+     * @param cause
+     *            the cause
+     * @param arguments
+     *            the arguments of the message
      */
-    AppointmentImportException( String strCode, String strMsgKey, Throwable cause, Object... args )
+    AppointmentImportException( String strCode, String strMessageKey, Throwable cause, Object... arguments )
     {
-        super( I18nService.getLocalizedString( strMsgKey, args, Locale.FRANCE ), cause );
+        super( I18nService.getLocalizedString( strMessageKey, arguments, I18nService.getDefaultLocale( ) ), cause );
         _strCode = strCode;
+        _strMessageKey = strMessageKey;
+        _arguments = arguments;
     }
 
     /**
-     * Returns the functional error code.
-     *
-     * @return the error code
+     * @return the functional error code
      */
     String getCode( )
     {
         return _strCode;
+    }
+
+    /**
+     * @param locale
+     *            the locale
+     * @return the message in this locale
+     */
+    String getMessage( Locale locale )
+    {
+        return I18nService.getLocalizedString( _strMessageKey, _arguments, locale );
     }
 }

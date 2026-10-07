@@ -31,24 +31,23 @@
  *
  * License 1.0
  */
-package fr.paris.lutece.plugins.appointment.modules.importer.business;
+package fr.paris.lutece.plugins.appointment.modules.importer.util;
 
-/** Status values persisted by the appointment importer. */
-public final class AppointmentImportStatus
+import static org.junit.Assert.assertEquals;
+
+import org.junit.Test;
+
+/**
+ * Tests the normalization used to compare headers and values.
+ */
+public class ImportTextUtilsTest
 {
-    // File / batch statuses
-    public static final String VALIDATION_FAILED = "VALIDATION_FAILED";
-    public static final String PENDING = "PENDING";
-    public static final String PROCESSING = "PROCESSING";
-    public static final String COMPLETED = "COMPLETED";
-    public static final String COMPLETED_WITH_ERRORS = "COMPLETED_WITH_ERRORS";
-    public static final String ARCHIVED = "ARCHIVED";
-
-    // Appointment-row statuses (a row is PENDING, then PROCESSING while its appointment is saved)
-    public static final String CREATED = "CREATED";
-    public static final String ERROR = "ERROR";
-
-    private AppointmentImportStatus( )
+    @Test
+    public void testNormalize( )
     {
+        assertEquals( "date de naissance", ImportTextUtils.normalize( "  Date de   NAISSANCE " ) );
+        assertEquals( "heure debut", ImportTextUtils.normalize( "heure_début" ) );
+        assertEquals( "prenom", ImportTextUtils.normalize( "Prénom" ) );
+        assertEquals( "", ImportTextUtils.normalize( null ) );
     }
 }

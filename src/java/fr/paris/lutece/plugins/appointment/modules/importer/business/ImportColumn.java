@@ -33,79 +33,66 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
-import java.util.HashMap;
-import java.util.Map;
-
-import fr.paris.lutece.plugins.appointment.modules.importer.util.ImportTextUtils;
-
 /**
- * Standard columns of an import workbook. Only these columns are validated and used to create appointments; any other
- * column is kept as is for the failed rows export.
+ * Standard columns of an import workbook.
+ * <p>
+ * A column is recognized by its header or by its alias. The header, the alias and, for the optional columns, the mandatory flag can be changed in {@code appointment-importer.properties}: see {@link ImportColumns}.
+ * </p>
  */
 public enum ImportColumn
 {
-    LAST_NAME( "Nom", AppointmentImportRow.ATTRIBUTE_LAST_NAME, true ),
-    FIRST_NAME( "Prénom", AppointmentImportRow.ATTRIBUTE_FIRST_NAME, true ),
-    EMAIL( "Email", AppointmentImportRow.ATTRIBUTE_EMAIL, true ),
-    PHONE_NUMBER( "Téléphone", AppointmentImportRow.ATTRIBUTE_PHONE_NUMBER, false ),
-    DATE( "Date", null, true ),
-    STARTING_TIME( "Heure de début", null, true ),
-    ENDING_TIME( "Heure de fin", null, true ),
-    BIRTH_DATE( "Date de naissance", AppointmentImportRow.ATTRIBUTE_BIRTH_DATE, true );
+    LAST_NAME( "lastName", "Nom", "nom", AppointmentImportRow.ATTRIBUTE_LAST_NAME, true, true ),
+    FIRST_NAME( "firstName", "Prénom", "prenom", AppointmentImportRow.ATTRIBUTE_FIRST_NAME, true, true ),
+    EMAIL( "email", "Email", "email", AppointmentImportRow.ATTRIBUTE_EMAIL, true, true ),
+    PHONE_NUMBER( "phoneNumber", "Téléphone", "telephone", AppointmentImportRow.ATTRIBUTE_PHONE_NUMBER, false, false ),
+    DATE( "date", "Date", "date_rdv", null, true, true ),
+    STARTING_TIME( "startingTime", "Heure de début", "heure_debut", null, true, true ),
+    ENDING_TIME( "endingTime", "Heure de fin", "heure_fin", null, true, true ),
+    BIRTH_DATE( "birthDate", "Date de naissance", "date_naissance", AppointmentImportRow.ATTRIBUTE_BIRTH_DATE, false, true );
 
-    private static final Map<String, ImportColumn> BY_NORMALIZED_HEADER = new HashMap<>( );
-
-    static
-    {
-        for ( ImportColumn column : values( ) )
-        {
-            BY_NORMALIZED_HEADER.put( column.getNormalizedHeader( ), column );
-        }
-    }
-
-    private final String _strHeader;
-    private final String _strNormalizedHeader;
+    private final String _strKey;
+    private final String _strDefaultHeader;
+    private final String _strDefaultAlias;
     private final String _strAttributeKey;
-    private final boolean _bMandatory;
+    private final boolean _bRequired;
+    private final boolean _bMandatoryByDefault;
 
-    ImportColumn( String strHeader, String strAttributeKey, boolean bMandatory )
+    ImportColumn( String strKey, String strDefaultHeader, String strDefaultAlias, String strAttributeKey, boolean bRequired, boolean bMandatoryByDefault )
     {
-        _strHeader = strHeader;
-        _strNormalizedHeader = ImportTextUtils.normalize( strHeader );
+        _strKey = strKey;
+        _strDefaultHeader = strDefaultHeader;
+        _strDefaultAlias = strDefaultAlias;
         _strAttributeKey = strAttributeKey;
-        _bMandatory = bMandatory;
+        _bRequired = bRequired;
+        _bMandatoryByDefault = bMandatoryByDefault;
     }
 
     /**
-     * Finds the standard column matching a workbook header
-     *
-     * @param strNormalizedHeader
-     *            the header, already normalized with {@link ImportTextUtils#normalize(String)}
-     * @return the standard column, or null if the header is not a standard column
+     * @return the key of the column in the configuration
      */
-    public static ImportColumn fromNormalizedHeader( String strNormalizedHeader )
+    public String getKey( )
     {
-        return BY_NORMALIZED_HEADER.get( strNormalizedHeader );
+        return _strKey;
     }
 
     /**
-     * @return the header expected in the workbook, as shown to the administrator
+     * @return the header used when none is configured
      */
-    public String getHeader( )
+    public String getDefaultHeader( )
     {
-        return _strHeader;
+        return _strDefaultHeader;
     }
 
     /**
-     * @return the normalized header
+     * @return the other header accepted when none is configured (the technical name of the import specification)
      */
-    public String getNormalizedHeader( )
+    public String getDefaultAlias( )
     {
-        return _strNormalizedHeader;
+        return _strDefaultAlias;
     }
 
     /**
-     * @return the key of the value in the generic attributes of a row, or null for the slot columns
+     * @return the key of the value in the stored row, or null for the columns that define the slot
      */
     public String getAttributeKey( )
     {
@@ -113,10 +100,18 @@ public enum ImportColumn
     }
 
     /**
-     * @return true if both the column and a value in each row are required
+     * @return true if an appointment cannot be created without this column, whatever the configuration
      */
-    public boolean isMandatory( )
+    public boolean isRequired( )
     {
-        return _bMandatory;
+        return _bRequired;
+    }
+
+    /**
+     * @return true if the column is mandatory when the configuration says nothing
+     */
+    public boolean isMandatoryByDefault( )
+    {
+        return _bMandatoryByDefault;
     }
 }

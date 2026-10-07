@@ -33,10 +33,9 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.web;
 
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -50,9 +49,10 @@ import fr.paris.lutece.plugins.appointment.business.form.Form;
 import fr.paris.lutece.plugins.appointment.business.form.FormHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
-import fr.paris.lutece.plugins.appointment.modules.importer.service.AppointmentImportHome;
+import fr.paris.lutece.plugins.appointment.modules.importer.service.AppointmentImportReportService;
 import fr.paris.lutece.plugins.appointment.modules.importer.service.AppointmentImportService;
 import fr.paris.lutece.plugins.appointment.service.AppointmentResourceIdService;
 import fr.paris.lutece.portal.service.i18n.I18nService;
@@ -83,6 +83,9 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
 
     // Actions
     private static final String ACTION_IMPORT_WORKBOOK = "doImportWorkbook";
+    private static final String ACTION_DOWNLOAD_VALIDATION_REPORT = "downloadValidationReport";
+    private static final String ACTION_DOWNLOAD_REPORT = "downloadReport";
+    private static final String ACTION_DOWNLOAD_FAILED_ROWS = "downloadFailedRows";
 
     // Templates
     private static final String TEMPLATE_MANAGE_IMPORT = "admin/plugins/appointment/modules/importer/manage_appointment_import.html";
@@ -99,6 +102,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     private static final String PARAMETER_FORM_ID = "id_form";
     private static final String PARAMETER_WORKBOOK = "import_file";
     private static final String PARAMETER_BATCH_ID = "id_import_batch";
+    private static final String PARAMETER_FILE_ID = "id_import_file";
     private static final String PARAMETER_STATUS = "status";
     private static final String PARAMETER_TAB = "tab";
     private static final String PARAMETER_FILTER_FILE = "filter_file";
@@ -115,6 +119,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
 
     // Model marks
     private static final String MARK_FORMS = "forms";
+    private static final String MARK_RESULT_FORMS = "result_forms";
     private static final String MARK_SELECTED_FORM_ID = "selected_form_id";
     private static final String MARK_VALIDATION_ERRORS = "validation_errors";
     private static final String MARK_VALIDATION_REPORT_AVAILABLE = "validation_report_available";
@@ -154,6 +159,13 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     private static final String KEY_STATUS_PREFIX = "module.appointment.importer.status.";
     private static final String KEY_STATUS_ALL = "module.appointment.importer.statusAll";
 
+    // Downloads
+    private static final String CONTENT_TYPE_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    private static final String FILE_NAME_VALIDATION_REPORT = "rapport-validation-";
+    private static final String FILE_NAME_REPORT = "rapport-import-";
+    private static final String FILE_NAME_FAILED_ROWS = "rendez-vous-non-importes-";
+    private static final String EXTENSION_XLSX = ".xlsx";
+
     private final AppointmentImportService _importService = new AppointmentImportService( );
     private List<AppointmentValidationError> _validationErrors = new ArrayList<>( );
     private String _selectedFormId = StringUtils.EMPTY;
@@ -180,10 +192,12 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             _validationErrors = new ArrayList<>( );
             _validationReportFileId = null;
         }
-        ReferenceList forms = getAuthorizedActiveForms( );
+        // Importing creates appointments; the results show the people imported
+        ReferenceList forms = getAuthorizedActiveForms( AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT );
+        ReferenceList resultForms = getAuthorizedActiveForms( AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT );
         String strTab = "results".equals( request.getParameter( PARAMETER_TAB ) ) ? "results" : "import";
         Map<Integer, String> mapFormTitles = new HashMap<>( );
-        List<Integer> listAuthorizedFormIds = forms.stream( )
+        List<Integer> listAuthorizedFormIds = resultForms.stream( )
                 .filter( item -> StringUtils.isNotBlank( item.getCode( ) ) )
                 .map( item -> {
                     int nId = Integer.parseInt( item.getCode( ) );
@@ -222,22 +236,20 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             strFilterStatus = _strSavedFilterStatus;
             strFilterDate   = _strSavedFilterDate;
         }
-        List<AppointmentImportFile> listAllFiles = AppointmentImportHome.findFiles( listAuthorizedFormIds, null, null );
-        listAllFiles.forEach( file -> file.setFormTitle( mapFormTitles.getOrDefault( file.getIdForm( ), Integer.toString( file.getIdForm( ) ) ) ) );
-        List<AppointmentImportFile> listFilterFiles = getUniqueFilesByName( listAllFiles );
+        List<String> listFilterFiles = AppointmentImportHome.findFileNames( listAuthorizedFormIds );
         boolean bHasSearchScope = StringUtils.isNotBlank( strFilterFile ) || StringUtils.isNotBlank( strFilterFormId );
         List<AppointmentImportBatch> listBatches = new ArrayList<>( );
         List<AppointmentImportFile> listFiles = new ArrayList<>( );
-        LocalizedPaginator<AppointmentImportBatch> paginator = null;
-        LocalizedPaginator<AppointmentImportFile> filePaginator = null;
+        LocalizedPaginator<Integer> paginator = null;
+        LocalizedPaginator<Integer> filePaginator = null;
         int nItemsPerPage = 0;
         String strPageIndex = "1";
         String strFilePageIndex = "1";
         if ( bHasSearchScope )
         {
-            listBatches = AppointmentImportHome.findBatches( listAuthorizedFormIds, strFilterFormId, strFilterStatus, strFilterFile, strFilterDate );
-            listBatches.forEach( batch -> batch.setFormTitle( mapFormTitles.getOrDefault( batch.getIdForm( ), Integer.toString( batch.getIdForm( ) ) ) ) );
-            listBatches.sort( Comparator.comparing( AppointmentImportBatch::getCreationDate, Comparator.nullsLast( Comparator.reverseOrder( ) ) ) );
+            // Only the ids are paginated: the batches and files of the current page alone are loaded
+            List<Integer> listBatchIds = AppointmentImportHome.findBatchIds( listAuthorizedFormIds, strFilterFormId, strFilterStatus, strFilterFile,
+                    strFilterDate );
             strPageIndex = AbstractPaginator.getPageIndex( request, AbstractPaginator.PARAMETER_PAGE_INDEX, "1" );
             strFilePageIndex = AbstractPaginator.getPageIndex( request, PARAMETER_FILE_PAGE_INDEX, "1" );
             // items_per_page is persisted in session (_nItemsPerPage) so it survives page navigation
@@ -255,10 +267,10 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             url.addParameter( PARAMETER_STATUS, strFilterStatus );
             url.addParameter( PARAMETER_FILTER_DATE, strFilterDate );
             url.addParameter( PARAMETER_FILE_PAGE_INDEX, strFilePageIndex );
-            paginator = new LocalizedPaginator<>( listBatches, nItemsPerPage, url.getUrl( ), AbstractPaginator.PARAMETER_PAGE_INDEX, strPageIndex, getLocale( ) );
-            listBatches = paginator.getPageItems( );
-            listFiles = AppointmentImportHome.findFiles( listAuthorizedFormIds, strFilterFile, strFilterStatus );
-            listFiles.forEach( file -> file.setFormTitle( mapFormTitles.getOrDefault( file.getIdForm( ), Integer.toString( file.getIdForm( ) ) ) ) );
+            paginator = new LocalizedPaginator<>( listBatchIds, nItemsPerPage, url.getUrl( ), AbstractPaginator.PARAMETER_PAGE_INDEX, strPageIndex, getLocale( ) );
+            listBatches = AppointmentImportHome.findBatchesByIds( paginator.getPageItems( ) );
+            listBatches.forEach( batch -> batch.setFormTitle( mapFormTitles.getOrDefault( batch.getIdForm( ), Integer.toString( batch.getIdForm( ) ) ) ) );
+            List<Integer> listFileIds = AppointmentImportHome.findFileIds( listAuthorizedFormIds, strFilterFile, strFilterStatus );
             UrlItem fileUrl = new UrlItem( JSP_MANAGE_IMPORT );
             fileUrl.addParameter( PARAMETER_TAB, "results" );
             fileUrl.addParameter( PARAMETER_FILTER_FILE, strFilterFile );
@@ -266,11 +278,13 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             fileUrl.addParameter( PARAMETER_STATUS, strFilterStatus );
             fileUrl.addParameter( PARAMETER_FILTER_DATE, strFilterDate );
             fileUrl.addParameter( AbstractPaginator.PARAMETER_PAGE_INDEX, strPageIndex );
-            filePaginator = new LocalizedPaginator<>( listFiles, nItemsPerPage, fileUrl.getUrl( ), PARAMETER_FILE_PAGE_INDEX, strFilePageIndex, getLocale( ) );
-            listFiles = filePaginator.getPageItems( );
+            filePaginator = new LocalizedPaginator<>( listFileIds, nItemsPerPage, fileUrl.getUrl( ), PARAMETER_FILE_PAGE_INDEX, strFilePageIndex, getLocale( ) );
+            listFiles = AppointmentImportHome.findFilesByIds( filePaginator.getPageItems( ) );
+            listFiles.forEach( file -> file.setFormTitle( mapFormTitles.getOrDefault( file.getIdForm( ), Integer.toString( file.getIdForm( ) ) ) ) );
         }
         Map<String, Object> model = getModel( );
         model.put( MARK_FORMS, forms );
+        model.put( MARK_RESULT_FORMS, resultForms );
         model.put( MARK_SELECTED_FORM_ID, _selectedFormId );
         model.put( MARK_VALIDATION_ERRORS, _validationErrors );
         model.put( MARK_VALIDATION_REPORT_AVAILABLE, _validationReportFileId != null );
@@ -311,7 +325,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             addError( MESSAGE_INVALID_TOKEN, getLocale( ) );
             return redirectView( request, VIEW_MANAGE_IMPORT );
         }
-        if ( !isAuthorizedForm( _selectedFormId ) )
+        if ( !isAuthorizedForm( _selectedFormId, AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT ) )
         {
             _validationErrors.add( AppointmentValidationError.workbook( message( KEY_FORM ), message( KEY_ERROR_FORM_UNAUTHORIZED ) ) );
             return getManageAppointmentImport( request );
@@ -342,7 +356,8 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         }
         try
         {
-            AppointmentImportFile importFile = _importService.register( nFormId, file.getName( ), fileBytes, strFileHash, getLocale( ) );
+            AppointmentImportFile importFile = _importService.register( nFormId, file.getName( ), fileBytes, strFileHash, getUser( ).getAccessCode( ),
+                    getLocale( ) );
             if ( AppointmentImportStatus.VALIDATION_FAILED.equals( importFile.getStatus( ) ) )
             {
                 _validationReportFileId = importFile.getIdImportFile( );
@@ -380,11 +395,11 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             return getManageAppointmentImport( request );
         }
         AppointmentImportBatch batch = AppointmentImportHome.findBatch( nBatchId );
-        if ( batch == null || !isAuthorizedForm( Integer.toString( batch.getIdForm( ) ) ) )
+        if ( batch == null || !isAuthorizedForm( Integer.toString( batch.getIdForm( ) ), AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT ) )
         {
             return getManageAppointmentImport( request );
         }
-        getAuthorizedActiveForms( ).stream( )
+        getAuthorizedActiveForms( AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT ).stream( )
                 .filter( item -> Integer.toString( batch.getIdForm( ) ).equals( item.getCode( ) ) )
                 .findFirst( )
                 .ifPresent( item -> batch.setFormTitle( item.getName( ) ) );
@@ -408,19 +423,96 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     }
 
     /**
-     * Returns one file per distinct file name (first occurrence wins), preserving insertion order.
+     * Downloads the validation report of a file rejected at validation.
      *
-     * @param listFiles source list
-     * @return deduplicated list
+     * @param request the request
+     * @return null: the report is written to the response
+     * @throws IOException if the report cannot be built
      */
-    private List<AppointmentImportFile> getUniqueFilesByName( List<AppointmentImportFile> listFiles )
+    @Action( ACTION_DOWNLOAD_VALIDATION_REPORT )
+    public String doDownloadValidationReport( HttpServletRequest request ) throws IOException
     {
-        Map<String, AppointmentImportFile> mapFilesByName = new LinkedHashMap<>( );
-        for ( AppointmentImportFile file : listFiles )
+        // The validation report answers the upload: whoever may import on the form may read it
+        AppointmentImportFile importFile = getAuthorizedFile( request, AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT,
+                AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT );
+        if ( importFile == null || importFile.getValidationReport( ) == null )
         {
-            mapFilesByName.putIfAbsent( file.getImportFileName( ), file );
+            return redirectView( request, VIEW_MANAGE_IMPORT );
         }
-        return new ArrayList<>( mapFilesByName.values( ) );
+        download( AppointmentImportReportService.validationReport( importFile.getValidationReport( ), getLocale( ) ),
+                FILE_NAME_VALIDATION_REPORT + importFile.getIdImportFile( ) + EXTENSION_XLSX, CONTENT_TYPE_XLSX );
+        return null;
+    }
+
+    /**
+     * Downloads the report of an import: one row per appointment, with its outcome.
+     *
+     * @param request the request
+     * @return null: the report is written to the response
+     * @throws IOException if the report cannot be built
+     */
+    @Action( ACTION_DOWNLOAD_REPORT )
+    public String doDownloadReport( HttpServletRequest request ) throws IOException
+    {
+        AppointmentImportFile importFile = getAuthorizedFile( request, AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT );
+        if ( importFile == null )
+        {
+            return redirectView( request, VIEW_MANAGE_IMPORT );
+        }
+        download( AppointmentImportReportService.finalReport( importFile.getIdImportFile( ), getLocale( ) ),
+                FILE_NAME_REPORT + importFile.getIdImportFile( ) + EXTENSION_XLSX, CONTENT_TYPE_XLSX );
+        return null;
+    }
+
+    /**
+     * Downloads the rows of an import whose appointment could not be created, in the layout of the source workbook.
+     *
+     * @param request the request
+     * @return null: the workbook is written to the response
+     * @throws IOException if the workbook cannot be built
+     */
+    @Action( ACTION_DOWNLOAD_FAILED_ROWS )
+    public String doDownloadFailedRows( HttpServletRequest request ) throws IOException
+    {
+        AppointmentImportFile importFile = getAuthorizedFile( request, AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT );
+        if ( importFile == null )
+        {
+            return redirectView( request, VIEW_MANAGE_IMPORT );
+        }
+        download( AppointmentImportReportService.failedRowsWorkbook( importFile.getIdImportFile( ), getLocale( ) ),
+                FILE_NAME_FAILED_ROWS + importFile.getIdImportFile( ) + EXTENSION_XLSX, CONTENT_TYPE_XLSX );
+        return null;
+    }
+
+    /**
+     * Returns the file named by the request, if the user has one of the given permissions on its form.
+     *
+     * @param request        the request
+     * @param strPermissions the RBAC permissions, any of which is enough
+     * @return the file, or null if it does not exist or is not authorized
+     */
+    private AppointmentImportFile getAuthorizedFile( HttpServletRequest request, String... strPermissions )
+    {
+        try
+        {
+            AppointmentImportFile importFile = AppointmentImportHome.findFile( Integer.parseInt( request.getParameter( PARAMETER_FILE_ID ) ) );
+            if ( importFile == null )
+            {
+                return null;
+            }
+            for ( String strPermission : strPermissions )
+            {
+                if ( isAuthorizedForm( Integer.toString( importFile.getIdForm( ) ), strPermission ) )
+                {
+                    return importFile;
+                }
+            }
+        }
+        catch( NumberFormatException e )
+        {
+            AppLogService.debug( "Appointment import: invalid file id " + request.getParameter( PARAMETER_FILE_ID ) );
+        }
+        return null;
     }
 
     /**
@@ -510,15 +602,16 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     /**
      * Returns true if the given form id is a valid integer and belongs to the current user's authorized forms.
      *
-     * @param strFormId the form id as a string
+     * @param strFormId     the form id as a string
+     * @param strPermission the RBAC permission required on the form
      * @return true if authorized, false otherwise
      */
-    private boolean isAuthorizedForm( String strFormId )
+    private boolean isAuthorizedForm( String strFormId, String strPermission )
     {
         try
         {
             int nId = Integer.parseInt( strFormId );
-            return getAuthorizedActiveForms( ).stream( ).anyMatch( item -> Integer.toString( nId ).equals( item.getCode( ) ) );
+            return getAuthorizedActiveForms( strPermission ).stream( ).anyMatch( item -> Integer.toString( nId ).equals( item.getCode( ) ) );
         }
         catch( NumberFormatException e )
         {
@@ -528,13 +621,16 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
 
     /**
      * Returns the active appointment forms accessible to the current admin user,
-     * filtered by workgroup and RBAC {@code VIEW_FORM} permission.
+     * filtered by workgroup and by the given RBAC permission.
      * The first item is always an empty placeholder used to display "no form selected".
+     *
+     * @param strPermission the RBAC permission required on the forms
+     * @return the forms
      */
-    private ReferenceList getAuthorizedActiveForms( )
+    private ReferenceList getAuthorizedActiveForms( String strPermission )
     {
         List<Form> listForms = new ArrayList<>( AdminWorkgroupService.getAuthorizedCollection( FormHome.findAllForms( ), getUser( ) ) );
-        listForms = new ArrayList<>( RBACService.getAuthorizedCollection( listForms, AppointmentResourceIdService.PERMISSION_VIEW_FORM, getUser( ) ) );
+        listForms = new ArrayList<>( RBACService.getAuthorizedCollection( listForms, strPermission, getUser( ) ) );
         ReferenceList listResult = new ReferenceList( );
         listResult.addItem( StringUtils.EMPTY, StringUtils.EMPTY );
         for ( Form form : listForms )
