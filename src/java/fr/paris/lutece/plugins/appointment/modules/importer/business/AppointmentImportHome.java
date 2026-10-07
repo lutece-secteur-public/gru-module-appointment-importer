@@ -35,6 +35,8 @@ package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import fr.paris.lutece.portal.service.plugin.Plugin;
 import fr.paris.lutece.portal.service.plugin.PluginService;
@@ -146,6 +148,29 @@ public final class AppointmentImportHome
     public static void updateFileStatus( int nId, String strStatus )
     {
         _dao.updateFileStatus( nId, strStatus, _plugin );
+    }
+
+    /**
+     * Finds the files still pending whose batches are all done.
+     *
+     * @return the ids
+     */
+    public static List<Integer> findFileIdsToClose( )
+    {
+        return _dao.selectFileIdsToClose( _plugin );
+    }
+
+    /**
+     * Fills the number of rows by outcome of each file.
+     *
+     * @param listFiles
+     *            the files
+     */
+    public static void fillCounts( List<AppointmentImportFile> listFiles )
+    {
+        Map<Integer, ImportCounts> mapCounts = _dao.countAppointmentsByFiles(
+                listFiles.stream( ).map( AppointmentImportFile::getIdImportFile ).collect( Collectors.toList( ) ), _plugin );
+        listFiles.forEach( file -> file.setCounts( mapCounts.getOrDefault( file.getIdImportFile( ), new ImportCounts( ) ) ) );
     }
 
     /**
@@ -332,6 +357,31 @@ public final class AppointmentImportHome
     }
 
     /**
+     * Puts a completed or pending batch back in the queue of the daemon; a batch being processed or archived is left as it is.
+     *
+     * @param nBatchId
+     *            the {@code id_import_batch}
+     * @return true if the batch is now pending, false if it is being processed or archived
+     */
+    public static boolean requeueBatch( int nBatchId )
+    {
+        return _dao.requeueBatch( nBatchId, _plugin );
+    }
+
+    /**
+     * Fills the number of rows by outcome of each batch.
+     *
+     * @param listBatches
+     *            the batches
+     */
+    public static void fillBatchCounts( List<AppointmentImportBatch> listBatches )
+    {
+        Map<Integer, ImportCounts> mapCounts = _dao.countAppointmentsByBatches(
+                listBatches.stream( ).map( AppointmentImportBatch::getIdImportBatch ).collect( Collectors.toList( ) ), _plugin );
+        listBatches.forEach( batch -> batch.setCounts( mapCounts.getOrDefault( batch.getIdImportBatch( ), new ImportCounts( ) ) ) );
+    }
+
+    /**
      * Tells whether a row of the batch failed.
      *
      * @param nBatchId
@@ -416,6 +466,57 @@ public final class AppointmentImportHome
     public static int countProcessedAppointmentsByBatch( int nBatchId )
     {
         return _dao.countAppointmentsByBatch( nBatchId, true, _plugin );
+    }
+
+    /**
+     * Finds a row.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     * @return the row, or null
+     */
+    public static AppointmentImportAppointment findAppointment( int nId )
+    {
+        return _dao.loadAppointment( nId, _plugin );
+    }
+
+    /**
+     * Replaces the values of a row.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     * @param strGenericAttributesData
+     *            the values of the standard columns, as JSON
+     * @param strFormFieldsData
+     *            the values of the form fields, as JSON
+     */
+    public static void updateAppointmentData( int nId, String strGenericAttributesData, String strFormFieldsData )
+    {
+        _dao.updateAppointmentData( nId, strGenericAttributesData, strFormFieldsData, _plugin );
+    }
+
+    /**
+     * Puts the rows in error of a batch back to pending, except those with the given error code.
+     *
+     * @param nBatchId
+     *            the {@code id_import_batch}
+     * @param strExcludedErrorCode
+     *            the error code of the rows to leave in error
+     */
+    public static void requeueErrorRows( int nBatchId, String strExcludedErrorCode )
+    {
+        _dao.requeueErrorRows( nBatchId, strExcludedErrorCode, _plugin );
+    }
+
+    /**
+     * Puts a row in error back to pending.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     */
+    public static void requeueRow( int nId )
+    {
+        _dao.requeueRow( nId, _plugin );
     }
 
     /**

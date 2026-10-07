@@ -44,6 +44,9 @@ public final class ImportTextUtils
 {
     private static final Pattern PATTERN_DIACRITICS = Pattern.compile( "\\p{M}+" );
     private static final Pattern PATTERN_SPACES = Pattern.compile( "[\\s\\u00A0_]+" );
+    private static final Pattern PATTERN_PHONE_SEPARATORS = Pattern.compile( "[\\s\\u00A0.\\-/()]" );
+    // A French number typed in a numeric cell loses its leading zero: 0612345678 is read 612345678
+    private static final Pattern PATTERN_PHONE_WITHOUT_LEADING_ZERO = Pattern.compile( "[1-9][0-9]{8}" );
 
     /**
      * Private constructor - this class need not be instantiated
@@ -68,5 +71,18 @@ public final class ImportTextUtils
         String strWithoutAccents = PATTERN_DIACRITICS.matcher( Normalizer.normalize( strValue, Normalizer.Form.NFD ) ).replaceAll( "" );
 
         return PATTERN_SPACES.matcher( strWithoutAccents ).replaceAll( " " ).trim( ).toLowerCase( Locale.ROOT );
+    }
+
+    /**
+     * Removes the separators of a phone number and restores the leading zero a numeric Excel cell drops.
+     *
+     * @param strValue
+     *            the phone number, may be null
+     * @return the phone number without separators, never null
+     */
+    public static String normalizePhoneNumber( String strValue )
+    {
+        String strPhoneNumber = strValue == null ? "" : PATTERN_PHONE_SEPARATORS.matcher( strValue ).replaceAll( "" );
+        return PATTERN_PHONE_WITHOUT_LEADING_ZERO.matcher( strPhoneNumber ).matches( ) ? "0" + strPhoneNumber : strPhoneNumber;
     }
 }

@@ -35,6 +35,7 @@ package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import fr.paris.lutece.portal.service.plugin.Plugin;
 
@@ -128,6 +129,26 @@ public interface IAppointmentImportDAO
      *            the plugin
      */
     void updateFileStatus( int nId, String strStatus, Plugin plugin );
+
+    /**
+     * Selects the files still pending whose batches are all done.
+     *
+     * @param plugin
+     *            the plugin
+     * @return the ids of the files whose status must be computed
+     */
+    List<Integer> selectFileIdsToClose( Plugin plugin );
+
+    /**
+     * Counts the rows of the given files by outcome.
+     *
+     * @param listFileIds
+     *            the files
+     * @param plugin
+     *            the plugin
+     * @return the counts of each file that has rows
+     */
+    Map<Integer, ImportCounts> countAppointmentsByFiles( List<Integer> listFileIds, Plugin plugin );
 
     /**
      * Tells whether a row of the file is in error.
@@ -288,6 +309,28 @@ public interface IAppointmentImportDAO
     void updateBatchStatus( int nId, String strStatus, Plugin plugin );
 
     /**
+     * Puts a completed or pending batch back in the queue of the daemon; a batch being processed or archived is left as it is.
+     *
+     * @param nBatchId
+     *            the {@code id_import_batch}
+     * @param plugin
+     *            the plugin
+     * @return true if the batch is now pending, false if it is being processed or archived
+     */
+    boolean requeueBatch( int nBatchId, Plugin plugin );
+
+    /**
+     * Counts the rows of the given batches by outcome.
+     *
+     * @param listBatchIds
+     *            the batches
+     * @param plugin
+     *            the plugin
+     * @return the counts of each batch that has rows
+     */
+    Map<Integer, ImportCounts> countAppointmentsByBatches( List<Integer> listBatchIds, Plugin plugin );
+
+    /**
      * Tells whether a row of the batch is in error.
      *
      * @param nBatchId
@@ -374,6 +417,53 @@ public interface IAppointmentImportDAO
      *            the plugin
      */
     void updateAppointment( int nId, String strStatus, String strCode, String strMessage, Integer nAppointmentId, Plugin plugin );
+
+    /**
+     * Loads a row.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     * @param plugin
+     *            the plugin
+     * @return the row, or null
+     */
+    AppointmentImportAppointment loadAppointment( int nId, Plugin plugin );
+
+    /**
+     * Replaces the values of a row.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     * @param strGenericAttributesData
+     *            the values of the standard columns, as JSON
+     * @param strFormFieldsData
+     *            the values of the form fields, as JSON
+     * @param plugin
+     *            the plugin
+     */
+    void updateAppointmentData( int nId, String strGenericAttributesData, String strFormFieldsData, Plugin plugin );
+
+    /**
+     * Puts the rows in error of a batch back to pending, except those with the given error code.
+     *
+     * @param nBatchId
+     *            the {@code id_import_batch}
+     * @param strExcludedErrorCode
+     *            the error code of the rows to leave in error
+     * @param plugin
+     *            the plugin
+     */
+    void requeueErrorRows( int nBatchId, String strExcludedErrorCode, Plugin plugin );
+
+    /**
+     * Puts a row in error back to pending.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     * @param plugin
+     *            the plugin
+     */
+    void requeueRow( int nId, Plugin plugin );
 
     /**
      * Deletes the rows of a batch.

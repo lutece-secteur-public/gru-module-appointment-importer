@@ -59,6 +59,10 @@ import fr.paris.lutece.portal.service.util.AppPropertiesService;
  * {@code PROCESSING} for longer than {@code appointment-importer.processing.timeoutMinutes} (the instance stopped while processing it) is taken over;
  * the row that was being saved at that moment is put in error, since its appointment may have been created.
  * </p>
+ * <p>
+ * A file is closed by the instance that closes its last batch. When two instances close the last two batches of a file at the same time, each may
+ * still see the other batch running: the next run closes such a file.
+ * </p>
  */
 public final class AppointmentImportDaemon extends Daemon
 {
@@ -89,6 +93,10 @@ public final class AppointmentImportDaemon extends Daemon
             {
                 process( batch );
             }
+        }
+        for ( int nFileId : AppointmentImportHome.findFileIdsToClose( ) )
+        {
+            closeFile( nFileId );
         }
     }
 
@@ -147,6 +155,12 @@ public final class AppointmentImportDaemon extends Daemon
         {
             processRow( batch, row, strAdminAccessCode, formEntries, listSlots );
             AppointmentImportHome.touchBatch( batch.getIdImportBatch( ) );
+        }
+        if ( !AppointmentImportHome.findAppointmentsByBatch( batch.getIdImportBatch( ), AppointmentImportStatus.PENDING ).isEmpty( ) )
+        {
+            // A row was retried while the batch was being processed: the next run takes the batch again
+            AppointmentImportHome.updateBatchStatus( batch.getIdImportBatch( ), AppointmentImportStatus.PENDING );
+            return;
         }
         closeBatch( batch, AppointmentImportHome.batchHasErrors( batch.getIdImportBatch( ) ) ? AppointmentImportStatus.COMPLETED_WITH_ERRORS
                 : AppointmentImportStatus.COMPLETED );
@@ -216,9 +230,18 @@ public final class AppointmentImportDaemon extends Daemon
                 b -> AppointmentImportStatus.PENDING.equals( b.getStatus( ) ) || AppointmentImportStatus.PROCESSING.equals( b.getStatus( ) ) );
         if ( !bPending )
         {
-            AppointmentImportHome.updateFileStatus( batch.getIdImportFile( ),
-                    AppointmentImportHome.fileHasErrors( batch.getIdImportFile( ) ) ? AppointmentImportStatus.COMPLETED_WITH_ERRORS
-                            : AppointmentImportStatus.COMPLETED );
+            closeFile( batch.getIdImportFile( ) );
         }
+    }
+
+    /**
+     * Sets the final status of a file whose batches are all done.
+     *
+     * @param nFileId the {@code id_import_file}
+     */
+    private void closeFile( int nFileId )
+    {
+        AppointmentImportHome.updateFileStatus( nFileId,
+                AppointmentImportHome.fileHasErrors( nFileId ) ? AppointmentImportStatus.COMPLETED_WITH_ERRORS : AppointmentImportStatus.COMPLETED );
     }
 }

@@ -63,7 +63,8 @@ import fr.paris.lutece.plugins.genericattributes.service.entrytype.IEntryTypeSer
  * The fields of an appointment form that a workbook fills: matches the columns to the fields, checks the values and builds the responses.
  * <p>
  * A column matches a field by its title or by its code. A field with choices (list, radio buttons, check boxes) only accepts the title or the value of
- * one of its choices; check boxes accept several, separated by {@code ;}.
+ * one of its choices; check boxes accept several, separated by {@code ;}. A text field named like an email (see
+ * {@link ImportValidationSettings#isEmailField(String)}) only accepts a valid email.
  * </p>
  */
 final class AppointmentFormEntries
@@ -80,6 +81,7 @@ final class AppointmentFormEntries
     private static final String ERROR_FORM_ENTRY_MISSING = "module.appointment.importer.error.column.missingInFile";
     private static final String ERROR_VALUE_REQUIRED = "module.appointment.importer.error.value.required";
     private static final String ERROR_VALUE_CHOICE = "module.appointment.importer.error.value.choice";
+    private static final String ERROR_VALUE_EMAIL = "module.appointment.importer.error.value.email";
     private static final Pattern PATTERN_CHOICE_SEPARATOR = Pattern.compile( "\\s*;\\s*" );
 
     private final List<Entry> _listEntries;
@@ -203,6 +205,10 @@ final class AppointmentFormEntries
             EntryKind kind = _kindResolver.apply( entry );
             if ( kind == EntryKind.TEXT )
             {
+                if ( isEmailField( entry, settings ) && !settings.isValidEmail( strValue ) )
+                {
+                    listErrors.add( AppointmentValidationError.row( row.getLineNumber( ), title( entry ), settings.message( ERROR_VALUE_EMAIL ) ) );
+                }
                 continue;
             }
             for ( String strChoice : splitChoices( strValue, kind ) )
@@ -278,6 +284,11 @@ final class AppointmentFormEntries
             }
         }
         return mapValues;
+    }
+
+    private static boolean isEmailField( Entry entry, ImportValidationSettings settings )
+    {
+        return settings.isEmailField( ImportTextUtils.normalize( title( entry ) ) ) || settings.isEmailField( ImportTextUtils.normalize( entry.getCode( ) ) );
     }
 
     private Entry findEntry( String strColumn )

@@ -45,6 +45,7 @@ public class AppointmentImportFile
     private String _importFileName;
     private int _idForm;
     private String _formTitle;
+    private ImportCounts _counts = new ImportCounts( );
     private String _adminAccessCode;
     private String _status;
     private String _fileHash;
@@ -90,6 +91,19 @@ public class AppointmentImportFile
     public void setAdminAccessCode( String strValue )
     {
         _adminAccessCode = strValue;
+    }
+
+    /**
+     * @return the number of rows by outcome; empty unless filled by {@link AppointmentImportHome}
+     */
+    public ImportCounts getCounts( )
+    {
+        return _counts;
+    }
+
+    public void setCounts( ImportCounts counts )
+    {
+        _counts = counts;
     }
 
     public String getFormTitle( )
