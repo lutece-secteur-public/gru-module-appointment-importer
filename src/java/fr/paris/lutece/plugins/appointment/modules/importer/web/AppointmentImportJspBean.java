@@ -793,7 +793,8 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
                 AppointmentImportStatus.PENDING,
                 AppointmentImportStatus.PROCESSING,
                 AppointmentImportStatus.COMPLETED,
-                AppointmentImportStatus.COMPLETED_WITH_ERRORS
+                AppointmentImportStatus.COMPLETED_WITH_ERRORS,
+                AppointmentImportStatus.VALIDATION_FAILED
         } )
         {
             options.addItem( strStatus, message( KEY_STATUS_PREFIX + strStatus ) );

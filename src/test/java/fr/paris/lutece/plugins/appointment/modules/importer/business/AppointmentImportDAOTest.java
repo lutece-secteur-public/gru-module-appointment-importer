@@ -201,6 +201,22 @@ public class AppointmentImportDAOTest extends AbstractLuteceIntegrationTest
     }
 
     @Test
+    public void testStatusFilterOfTheFiles( )
+    {
+        List<Integer> listForms = Collections.singletonList( FORM_ID );
+        int nRunningFileId = createFile( AppointmentImportStatus.PENDING, "hash-status-1" );
+        createBatch( nRunningFileId, AppointmentImportStatus.PROCESSING );
+        int nWaitingFileId = createFile( AppointmentImportStatus.PENDING, "hash-status-2" );
+        createBatch( nWaitingFileId, AppointmentImportStatus.PENDING );
+        int nRejectedFileId = createFile( AppointmentImportStatus.VALIDATION_FAILED, "hash-status-3" );
+
+        List<Integer> listProcessing = AppointmentImportHome.findFileIds( listForms, null, null, AppointmentImportStatus.PROCESSING, null );
+        assertTrue( listProcessing.contains( nRunningFileId ) );
+        assertFalse( listProcessing.contains( nWaitingFileId ) );
+        assertTrue( AppointmentImportHome.findFileIds( listForms, null, null, AppointmentImportStatus.VALIDATION_FAILED, null ).contains( nRejectedFileId ) );
+    }
+
+    @Test
     public void testRetriedBatchIsNotPurged( )
     {
         int nBatchId = createBatch( createFile( AppointmentImportStatus.PENDING, "hash-purge-retried" ), AppointmentImportStatus.COMPLETED_WITH_ERRORS );

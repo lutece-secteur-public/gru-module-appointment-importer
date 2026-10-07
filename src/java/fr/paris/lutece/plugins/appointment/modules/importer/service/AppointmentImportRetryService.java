@@ -164,14 +164,15 @@ public final class AppointmentImportRetryService
     }
 
     /**
-     * Puts rows of a batch back to pending, then the batch and its file, in one transaction. Nothing is kept if the batch cannot be put back in the queue:
-     * the daemon may have taken it since it was checked, and rows left pending in a batch it is closing would never be processed.
+     * Puts rows of a batch back to pending, then the batch and its file, in one transaction. Nothing is kept if no row is pending afterwards (only
+     * interrupted rows were in error: they are retried one by one), or if the batch cannot be put back in the queue: the daemon may have taken it since
+     * it was checked, and rows left pending in a batch it is closing would never be processed.
      *
      * @param batch
      *            the batch
      * @param requeueRows
      *            puts the rows back to pending
-     * @return true if the batch is pending with its rows
+     * @return true if the batch is pending with rows to process
      */
     private static boolean requeue( AppointmentImportBatch batch, Runnable requeueRows )
     {
@@ -180,7 +181,8 @@ public final class AppointmentImportRetryService
         try
         {
             requeueRows.run( );
-            if ( !AppointmentImportHome.requeueBatch( batch.getIdImportBatch( ) ) )
+            if ( AppointmentImportHome.findAppointmentsByBatch( batch.getIdImportBatch( ), AppointmentImportStatus.PENDING ).isEmpty( )
+                    || !AppointmentImportHome.requeueBatch( batch.getIdImportBatch( ) ) )
             {
                 TransactionManager.rollBack( plugin );
                 return false;
