@@ -70,6 +70,7 @@ public final class AppointmentImportRetryService
     /** Error code of a row interrupted while its appointment was being saved */
     public static final String INTERRUPTED = AppointmentImportException.INTERRUPTED;
 
+    private static final String ERROR_RETRY_REFUSED = "module.appointment.importer.error.retryRefused";
     private static final String ERROR_VALUE_REQUIRED = "module.appointment.importer.error.value.required";
     private static final String ERROR_VALUE_TOO_LONG = "module.appointment.importer.error.value.tooLong";
     private static final String ERROR_VALUE_EMAIL = "module.appointment.importer.error.value.email";
@@ -98,25 +99,8 @@ public final class AppointmentImportRetryService
         {
             return false;
         }
-        Plugin plugin = PluginService.getPlugin( AppointmentImportHome.PLUGIN_NAME );
-        TransactionManager.beginTransaction( plugin );
-        try
-        {
-            // The rows first, then the batch: a completed batch is never taken by the daemon before it is pending again
-            AppointmentImportHome.requeueErrorRows( nBatchId, AppointmentImportException.INTERRUPTED );
-            boolean bRequeued = AppointmentImportHome.requeueBatch( nBatchId );
-            if ( bRequeued )
-            {
-                AppointmentImportHome.updateFileStatus( batch.getIdImportFile( ), AppointmentImportStatus.PENDING );
-            }
-            TransactionManager.commitTransaction( plugin );
-            return bRequeued;
-        }
-        catch( RuntimeException e )
-        {
-            TransactionManager.rollBack( plugin, e );
-            throw e;
-        }
+        // The rows first, then the batch: a completed batch is never taken by the daemon before it is pending again
+        return requeue( batch, ( ) -> AppointmentImportHome.requeueErrorRows( nBatchId, AppointmentImportException.INTERRUPTED ) );
     }
 
     /**
@@ -148,6 +132,21 @@ public final class AppointmentImportRetryService
      */
     public static boolean retryRow( int nRowId )
     {
+        return retryRow( nRowId, ( ) -> {
+        } );
+    }
+
+    /**
+     * Puts one row in error back in the queue, after a change made in the same transaction.
+     *
+     * @param nRowId
+     *            the {@code id_import_appointment}
+     * @param change
+     *            the change of the row, kept only if the row is put back in the queue
+     * @return true if the row was put back in the queue
+     */
+    private static boolean retryRow( int nRowId, Runnable change )
+    {
         AppointmentImportAppointment row = AppointmentImportHome.findAppointment( nRowId );
         if ( row == null || !AppointmentImportStatus.ERROR.equals( row.getStatus( ) ) )
         {
@@ -158,18 +157,37 @@ public final class AppointmentImportRetryService
         {
             return false;
         }
+        return requeue( batch, ( ) -> {
+            change.run( );
+            AppointmentImportHome.requeueRow( nRowId );
+        } );
+    }
+
+    /**
+     * Puts rows of a batch back to pending, then the batch and its file, in one transaction. Nothing is kept if the batch cannot be put back in the queue:
+     * the daemon may have taken it since it was checked, and rows left pending in a batch it is closing would never be processed.
+     *
+     * @param batch
+     *            the batch
+     * @param requeueRows
+     *            puts the rows back to pending
+     * @return true if the batch is pending with its rows
+     */
+    private static boolean requeue( AppointmentImportBatch batch, Runnable requeueRows )
+    {
         Plugin plugin = PluginService.getPlugin( AppointmentImportHome.PLUGIN_NAME );
         TransactionManager.beginTransaction( plugin );
         try
         {
-            AppointmentImportHome.requeueRow( nRowId );
-            boolean bRequeued = AppointmentImportHome.requeueBatch( batch.getIdImportBatch( ) );
-            if ( bRequeued )
+            requeueRows.run( );
+            if ( !AppointmentImportHome.requeueBatch( batch.getIdImportBatch( ) ) )
             {
-                AppointmentImportHome.updateFileStatus( batch.getIdImportFile( ), AppointmentImportStatus.PENDING );
+                TransactionManager.rollBack( plugin );
+                return false;
             }
+            AppointmentImportHome.updateFileStatus( batch.getIdImportFile( ), AppointmentImportStatus.PENDING );
             TransactionManager.commitTransaction( plugin );
-            return bRequeued;
+            return true;
         }
         catch( RuntimeException e )
         {
@@ -214,7 +232,7 @@ public final class AppointmentImportRetryService
      *            what the validation depends on
      * @param formEntries
      *            the fields of the form of the row
-     * @return the errors of the new values; empty if the row was corrected and put back in the queue
+     * @return the errors of the new values, or the refusal of the retry; empty if the row was corrected and put back in the queue
      */
     static List<AppointmentValidationError> correctRow( int nRowId, Map<String, String> mapGenericAttributes, Map<String, String> mapFormFields,
             ImportValidationSettings settings, AppointmentFormEntries formEntries )
@@ -222,11 +240,11 @@ public final class AppointmentImportRetryService
         AppointmentImportAppointment row = AppointmentImportHome.findAppointment( nRowId );
         Map<String, String> mapGeneric = new LinkedHashMap<>( mapGenericAttributes );
         List<AppointmentValidationError> listErrors = validate( row.getSourceLineNumber( ), mapGeneric, mapFormFields, settings, formEntries );
-        if ( listErrors.isEmpty( ) )
+        // The correction is kept only with its retry: a row corrected but left in error would look done
+        if ( listErrors.isEmpty( ) && !retryRow( nRowId, ( ) -> AppointmentImportHome.updateAppointmentData( nRowId,
+                AppointmentImportJsonService.writeMap( mapGeneric ), AppointmentImportJsonService.writeMap( mapFormFields ) ) ) )
         {
-            AppointmentImportHome.updateAppointmentData( nRowId, AppointmentImportJsonService.writeMap( mapGeneric ),
-                    AppointmentImportJsonService.writeMap( mapFormFields ) );
-            retryRow( nRowId );
+            listErrors.add( AppointmentValidationError.workbook( "", settings.message( ERROR_RETRY_REFUSED ) ) );
         }
         return listErrors;
     }

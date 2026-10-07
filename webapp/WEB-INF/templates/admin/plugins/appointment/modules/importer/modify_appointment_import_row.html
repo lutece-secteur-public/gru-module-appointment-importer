@@ -13,7 +13,7 @@
         </div>
         <@alert color='danger'>${import_row.errorMessage!?html}</@alert>
         <#if row_errors?has_content>
-            <@alert color='danger'><#list row_errors as error>${error.field?html} : ${error.message?html}<#if error_has_next><br></#if></#list></@alert>
+            <@alert color='danger'><#list row_errors as error><#if error.field?has_content>${error.field?html} : </#if>${error.message?html}<#if error_has_next><br></#if></#list></@alert>
         </#if>
         <@tform name='modify_import_row' action='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp' method='post'>
             <@input type='hidden' name='token' value='${token}' />

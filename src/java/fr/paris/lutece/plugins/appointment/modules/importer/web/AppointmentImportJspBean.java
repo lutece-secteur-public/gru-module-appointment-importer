@@ -264,6 +264,12 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             strFilterDate   = _strSavedFilterDate;
         }
         strFilterDate = validDate( strFilterDate );
+        // A form id the user may not see, or not a number, is dropped instead of failing every page of the session
+        if ( !listAuthorizedFormIds.stream( ).map( String::valueOf ).collect( Collectors.toList( ) ).contains( strFilterFormId ) )
+        {
+            strFilterFormId = StringUtils.EMPTY;
+            _strSavedFilterFormId = StringUtils.EMPTY;
+        }
         List<String> listFilterFiles = AppointmentImportHome.findFileNames( listAuthorizedFormIds );
         List<AppointmentImportBatch> listBatches;
         List<AppointmentImportFile> listFiles;
