@@ -75,7 +75,7 @@ final class ImportTestUtils
     {
         return new ImportValidationSettings( ImportColumns.defaults( ), ( strKey, args ) -> args.length == 0 ? strKey
                 : strKey + " " + Arrays.stream( args ).map( String::valueOf ).collect( Collectors.joining( " " ) ), strEmail -> strEmail.contains( "@" ),
-                NOW, nMaxRows, 100, "0[0-9]{9}" );
+                NOW, nMaxRows, 100, "0[0-9]{9}", ImportValidationSettings.DEFAULT_EMAIL_FIELD_PATTERN );
     }
 
     /**

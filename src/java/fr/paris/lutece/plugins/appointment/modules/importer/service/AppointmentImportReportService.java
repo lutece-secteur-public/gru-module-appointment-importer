@@ -52,6 +52,8 @@ import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import fr.paris.lutece.plugins.appointment.business.appointment.Appointment;
+import fr.paris.lutece.plugins.appointment.business.appointment.AppointmentHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
@@ -83,6 +85,19 @@ public final class AppointmentImportReportService
      */
     public static byte [ ] finalReport( int nFileId, Locale locale ) throws IOException
     {
+        // Read every row first: the columns of the form fields are the union of their keys
+        List<ReportRow> listRows = new ArrayList<>( );
+        LinkedHashSet<String> setFieldNames = new LinkedHashSet<>( );
+        for ( AppointmentImportBatch batch : AppointmentImportHome.findBatchesByFile( nFileId ) )
+        {
+            for ( AppointmentImportAppointment appointment : AppointmentImportHome.findAppointmentsByBatch( batch.getIdImportBatch( ), null ) )
+            {
+                Map<String, String> mapFields = AppointmentImportJsonService.readMap( appointment.getFormFieldsJson( ) );
+                setFieldNames.addAll( mapFields.keySet( ) );
+                listRows.add( new ReportRow( batch, appointment, AppointmentImportJsonService.readMap( appointment.getGenericAttributesJson( ) ), mapFields ) );
+            }
+        }
+        ImportColumns columns = ImportColumns.fromProperties( );
         try ( XSSFWorkbook workbook = new XSSFWorkbook( ); ByteArrayOutputStream output = new ByteArrayOutputStream( ) )
         {
             XSSFCellStyle headerStyle = buildHeaderStyle( workbook );
@@ -90,49 +105,88 @@ public final class AppointmentImportReportService
             Sheet sheet = workbook.createSheet( I18nService.getLocalizedString( "module.appointment.importer.report.sheetName", locale ) );
             sheet.createFreezePane( 0, 1 );
 
-            String [ ] listHeaders = {
-                    I18nService.getLocalizedString( "module.appointment.importer.report.slot",     locale ),
-                    I18nService.getLocalizedString( "module.appointment.importer.columnLine",       locale ),
-                    I18nService.getLocalizedString( "module.appointment.importer.filterStatus",     locale ),
-                    I18nService.getLocalizedString( "module.appointment.importer.report.rdvId",     locale ),
-                    I18nService.getLocalizedString( "module.appointment.importer.report.errorCode", locale ),
-                    I18nService.getLocalizedString( "module.appointment.importer.report.errorMsg",  locale ),
-            };
+            List<String> listHeaders = new ArrayList<>( );
+            listHeaders.add( I18nService.getLocalizedString( "module.appointment.importer.report.slot", locale ) );
+            listHeaders.add( I18nService.getLocalizedString( "module.appointment.importer.columnLine", locale ) );
+            listHeaders.add( I18nService.getLocalizedString( "module.appointment.importer.filterStatus", locale ) );
+            listHeaders.add( I18nService.getLocalizedString( "module.appointment.importer.report.reference", locale ) );
+            listHeaders.add( I18nService.getLocalizedString( "module.appointment.importer.report.rdvId", locale ) );
+            // The person, as in the workbook, so that a created appointment can be told from another
+            for ( ImportColumn column : ImportColumn.values( ) )
+            {
+                if ( column.getAttributeKey( ) != null )
+                {
+                    listHeaders.add( columns.getHeader( column ) );
+                }
+            }
+            listHeaders.addAll( setFieldNames );
+            listHeaders.add( I18nService.getLocalizedString( "module.appointment.importer.report.errorCode", locale ) );
+            listHeaders.add( I18nService.getLocalizedString( "module.appointment.importer.report.errorMsg", locale ) );
             Row headerRow = sheet.createRow( 0 );
-            for ( int nCol = 0; nCol < listHeaders.length; nCol++ )
+            for ( int nCol = 0; nCol < listHeaders.size( ); nCol++ )
             {
                 Cell cell = headerRow.createCell( nCol );
-                cell.setCellValue( listHeaders [ nCol ] );
+                cell.setCellValue( listHeaders.get( nCol ) );
                 cell.setCellStyle( headerStyle );
             }
 
             int nRowIndex = 1;
-            for ( AppointmentImportBatch batch : AppointmentImportHome.findBatchesByFile( nFileId ) )
+            for ( ReportRow reportRow : listRows )
             {
-                String strSlot = batch.getStartingDateTime( ).toLocalDate( ).format( FORMAT_DATE )
-                        + "  ·  "
-                        + batch.getStartingDateTime( ).toLocalTime( ).format( FORMAT_TIME )
-                        + " – "
-                        + batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME );
-                for ( AppointmentImportAppointment appt : AppointmentImportHome.findAppointmentsByBatch( batch.getIdImportBatch( ), null ) )
+                AppointmentImportAppointment appt = reportRow._appointment;
+                Row row = sheet.createRow( nRowIndex++ );
+                int nCol = 0;
+                row.createCell( nCol++ ).setCellValue( slotLabel( reportRow._batch ) );
+                row.createCell( nCol++ ).setCellValue( appt.getSourceLineNumber( ) );
+                row.createCell( nCol++ ).setCellValue( localizeStatus( appt.getStatus( ), locale ) );
+                row.createCell( nCol++ ).setCellValue( reference( appt.getIdAppointment( ) ) );
+                row.createCell( nCol++ ).setCellValue( appt.getIdAppointment( ) == null ? "" : String.valueOf( appt.getIdAppointment( ) ) );
+                for ( ImportColumn column : ImportColumn.values( ) )
                 {
-                    Row row = sheet.createRow( nRowIndex++ );
-                    row.createCell( 0 ).setCellValue( strSlot );
-                    row.createCell( 1 ).setCellValue( appt.getSourceLineNumber( ) );
-                    row.createCell( 2 ).setCellValue( localizeStatus( appt.getStatus( ), locale ) );
-                    row.createCell( 3 ).setCellValue( appt.getIdAppointment( ) == null ? "" : String.valueOf( appt.getIdAppointment( ) ) );
-                    row.createCell( 4 ).setCellValue( appt.getErrorCode( ) == null ? "" : appt.getErrorCode( ) );
-                    row.createCell( 5 ).setCellValue( appt.getErrorMessage( ) == null ? "" : appt.getErrorMessage( ) );
+                    if ( column.getAttributeKey( ) != null )
+                    {
+                        row.createCell( nCol++ ).setCellValue( reportRow._generic.getOrDefault( column.getAttributeKey( ), "" ) );
+                    }
                 }
+                for ( String strFieldName : setFieldNames )
+                {
+                    row.createCell( nCol++ ).setCellValue( reportRow._fields.getOrDefault( strFieldName, "" ) );
+                }
+                row.createCell( nCol++ ).setCellValue( appt.getErrorCode( ) == null ? "" : appt.getErrorCode( ) );
+                row.createCell( nCol ).setCellValue( appt.getErrorMessage( ) == null ? "" : appt.getErrorMessage( ) );
             }
 
-            for ( int nCol = 0; nCol < listHeaders.length; nCol++ )
+            for ( int nCol = 0; nCol < listHeaders.size( ); nCol++ )
             {
                 sheet.autoSizeColumn( nCol );
             }
             workbook.write( output );
             return output.toByteArray( );
         }
+    }
+
+    /**
+     * @param batch the batch
+     * @return its slot, as shown in the reports
+     */
+    private static String slotLabel( AppointmentImportBatch batch )
+    {
+        return batch.getStartingDateTime( ).toLocalDate( ).format( FORMAT_DATE ) + "  ·  " + batch.getStartingDateTime( ).toLocalTime( ).format( FORMAT_TIME )
+                + " – " + batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME );
+    }
+
+    /**
+     * @param nIdAppointment the created appointment, or null
+     * @return its reference, or an empty string if there is none or it was deleted since
+     */
+    private static String reference( Integer nIdAppointment )
+    {
+        if ( nIdAppointment == null )
+        {
+            return "";
+        }
+        Appointment appointment = AppointmentHome.findByPrimaryKey( nIdAppointment );
+        return appointment == null || appointment.getReference( ) == null ? "" : appointment.getReference( );
     }
 
     /**
@@ -288,6 +342,22 @@ public final class AppointmentImportReportService
     private static String localizeStatus( String strStatus, Locale locale )
     {
         return I18nService.getLocalizedString( "module.appointment.importer.status." + strStatus, locale );
+    }
+
+    private static final class ReportRow
+    {
+        private final AppointmentImportBatch _batch;
+        private final AppointmentImportAppointment _appointment;
+        private final Map<String, String> _generic;
+        private final Map<String, String> _fields;
+
+        private ReportRow( AppointmentImportBatch batch, AppointmentImportAppointment appointment, Map<String, String> generic, Map<String, String> fields )
+        {
+            _batch = batch;
+            _appointment = appointment;
+            _generic = generic;
+            _fields = fields;
+        }
     }
 
     private static final class FailedRow

@@ -34,6 +34,7 @@
 package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -110,6 +111,22 @@ public class AppointmentFormEntriesTest
         assertEquals( Arrays.asList( "CASPE d'affectation : module.appointment.importer.error.value.required",
                 "Niveau : module.appointment.importer.error.value.choice Expert Débutant, Confirmé",
                 "Jours : module.appointment.importer.error.value.choice Dimanche Lundi, Mardi" ), listErrors );
+    }
+
+    @Test
+    public void testFieldNamedLikeAnEmailOnlyAcceptsAnEmail( )
+    {
+        AppointmentImportRow row = row( "CASPE 18", "1", "lun" );
+        Map<String, String> mapFields = new LinkedHashMap<>( row.getFormFields( ) );
+        mapFields.put( "email du CAR", "pas un email" );
+        List<String> listErrors = _formEntries.validateRow( new AppointmentImportRow( 2, row.getGenericAttributes( ), mapFields, row.getAppointmentDate( ),
+                row.getStartingTime( ), row.getEndingTime( ) ), ImportTestUtils.settings( 10 ) ).stream( ).map( e -> e.getField( ) + " : " + e.getMessage( ) )
+                .collect( Collectors.toList( ) );
+
+        assertEquals( Arrays.asList( "email du CAR : module.appointment.importer.error.value.email" ), listErrors );
+        assertTrue( ImportTestUtils.settings( 10 ).isEmailField( "email car" ) );
+        assertTrue( ImportTestUtils.settings( 10 ).isEmailField( "courriel" ) );
+        assertFalse( ImportTestUtils.settings( 10 ).isEmailField( "caspe d'affectation" ) );
     }
 
     @Test

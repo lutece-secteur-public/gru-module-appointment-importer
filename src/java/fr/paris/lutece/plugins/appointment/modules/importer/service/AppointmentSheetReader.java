@@ -47,7 +47,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.util.CellReference;
@@ -92,9 +91,6 @@ final class AppointmentSheetReader implements SheetContentsHandler
     private static final DateTimeFormatter FORMAT_DATE_INPUT = DateTimeFormatter.ofPattern( "d/M/uuuu" ).withResolverStyle( ResolverStyle.STRICT );
     private static final DateTimeFormatter FORMAT_DATE_OUTPUT = DateTimeFormatter.ofPattern( "dd/MM/uuuu" );
     private static final DateTimeFormatter FORMAT_TIME_INPUT = DateTimeFormatter.ofPattern( "H:mm[:ss]" ).withResolverStyle( ResolverStyle.STRICT );
-    private static final Pattern PATTERN_PHONE_SEPARATORS = Pattern.compile( "[\\s.\\-/()]" );
-    // A French number typed in a numeric cell loses its leading zero: 0612345678 is read 612345678
-    private static final Pattern PATTERN_PHONE_WITHOUT_LEADING_ZERO = Pattern.compile( "[1-9][0-9]{8}" );
     private static final String KEY_SEPARATOR = "\u0000";
 
     private final ImportValidationSettings _settings;
@@ -367,11 +363,7 @@ final class AppointmentSheetReader implements SheetContentsHandler
      */
     private String readPhoneNumber( int nLine )
     {
-        String strPhoneNumber = PATTERN_PHONE_SEPARATORS.matcher( readText( ImportColumn.PHONE_NUMBER, nLine ) ).replaceAll( "" );
-        if ( PATTERN_PHONE_WITHOUT_LEADING_ZERO.matcher( strPhoneNumber ).matches( ) )
-        {
-            strPhoneNumber = "0" + strPhoneNumber;
-        }
+        String strPhoneNumber = ImportTextUtils.normalizePhoneNumber( readText( ImportColumn.PHONE_NUMBER, nLine ) );
         if ( !strPhoneNumber.isEmpty( ) && !_settings.isValidPhoneNumber( strPhoneNumber ) )
         {
             addRowError( nLine, ImportColumn.PHONE_NUMBER, ERROR_VALUE_PHONE );

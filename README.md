@@ -8,8 +8,11 @@ Lutece module that imports appointments from an Excel file.
 2. The file is validated (duplicate rows, missing values, formats, form fields, etc.). If any error is found, a report is created and nothing is imported.
 3. If the file is valid, its rows are saved in database, grouped by slot.
 4. The daemon `AppointmentImportDaemon` creates the appointments using the services of the appointment plugin.
-5. Results (created appointments, errors) are available in the administration interface, with downloadable reports.
-6. The daemon `AppointmentImportPurgeDaemon` removes the personal data of the imports older than the retention period and keeps them archived.
+5. Results are available in the administration interface: the latest imports are listed with their number of rows created and in error, and
+   the final report gives, for each row, its outcome, the person and the reference of the created appointment.
+6. The rows in error can be retried once the cause is fixed (a slot opened, the form reactivated), for a whole file, a batch or a single row,
+   and the values of a row can be corrected before it is retried.
+7. The daemon `AppointmentImportPurgeDaemon` removes the personal data of the imports older than the retention period and keeps them archived.
 
 ## Rights
 
@@ -40,7 +43,8 @@ Any additional column must match a generic-attribute field of the selected form,
 - All mandatory columns must be present and non-empty.
 - Additional columns and the fields of the form must match exactly, both ways.
 - Mandatory fields of the form must be filled; a field with choices only accepts the title or the value of one of its choices
-  (check boxes accept several, separated by `;`).
+  (check boxes accept several, separated by `;`); a text field whose title or code contains `email`, `mail` or `courriel` only accepts
+  a valid email (`appointment-importer.emailFieldPattern`).
 - Email must match the pattern configured in Lutece.
 - Phone number must have 10 digits and start with 0; the leading zero lost by a numeric Excel cell is restored.
 - Last and first names must not exceed 100 characters.
@@ -52,10 +56,27 @@ Any additional column must match a generic-attribute field of the selected form,
 
 Import does not start if any validation error is detected. All errors are reported at once.
 
-The slots are checked when the appointments are created: a slot that does not exist, is closed or is full puts its rows in error.
+The slots are checked when the appointments are created. A row in error says why: no slot on that day (`SLOT_NOT_FOUND`), outside
+the opening hours (`SLOT_NOT_FOUND`), times not on the limits of the slots (`SLOT_NOT_ALIGNED`, with the duration of the slots),
+slot closed (`SLOT_CLOSED`) or full (`SLOT_FULL`).
 
 ## Processing
 
 A batch (the rows of one slot) is taken atomically, so that several instances of the webapp never process the same batch.
 A batch left in `PROCESSING` for more than `appointment-importer.processing.timeoutMinutes` is taken over; the row that was being saved
 at that moment is put in error (code `INTERRUPTED`) and must be checked by hand, since its appointment may have been created.
+A batch left with pending rows (a row retried while the daemon was processing it) is put back in the queue. A file still pending whose batches
+are all done (two instances closed its last batches at the same time) is closed by the next run of the daemon.
+
+A row put in error as `INTERRUPTED` is never retried with the others: it can only be retried on its own, once checked by hand.
+
+## Tests
+
+The unit tests run with `mvn test`. The integration tests (DAO, daemon on a real appointment form) need Lutece started on a database:
+
+```bash
+mvn clean lutece:exploded antrun:run -Dlutece-test-hsql test
+```
+
+They are JUnit 4 tests extending `AbstractLuteceIntegrationTest`, which starts Lutece through `LuteceTestCase` of
+`library-lutece-unit-testing`.

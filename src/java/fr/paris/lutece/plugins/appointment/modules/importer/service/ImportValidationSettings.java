@@ -59,6 +59,9 @@ public final class ImportValidationSettings
     private static final int DEFAULT_MAX_ROWS = 20000;
     private static final int DEFAULT_MAX_NAME_LENGTH = 100;
     private static final String DEFAULT_PHONE_PATTERN = "0[0-9]{9}";
+    private static final String PROPERTY_EMAIL_FIELD_PATTERN = "appointment-importer.emailFieldPattern";
+    /** Found in the normalized title or code of a field: "email du CAR", "email_car", "Courriel" */
+    public static final String DEFAULT_EMAIL_FIELD_PATTERN = "(^|[ -])(e-?mail|mail|courriel)($|[ -])";
 
     private final ImportColumns _columns;
     private final BiFunction<String, Object [ ], String> _messages;
@@ -67,6 +70,7 @@ public final class ImportValidationSettings
     private final int _nMaxRows;
     private final int _nMaxNameLength;
     private final Pattern _patternPhone;
+    private final Pattern _patternEmailField;
 
     /**
      * @param columns
@@ -83,9 +87,11 @@ public final class ImportValidationSettings
      *            the maximum length of a last or first name
      * @param strPhonePattern
      *            the pattern a phone number must match once its separators are removed
+     * @param strEmailFieldPattern
+     *            the pattern found in the normalized title or code of the form fields whose value must be an email
      */
     public ImportValidationSettings( ImportColumns columns, BiFunction<String, Object [ ], String> messages, Predicate<String> emailChecker,
-            LocalDateTime dtNow, int nMaxRows, int nMaxNameLength, String strPhonePattern )
+            LocalDateTime dtNow, int nMaxRows, int nMaxNameLength, String strPhonePattern, String strEmailFieldPattern )
     {
         _columns = columns;
         _messages = messages;
@@ -94,6 +100,7 @@ public final class ImportValidationSettings
         _nMaxRows = nMaxRows;
         _nMaxNameLength = nMaxNameLength;
         _patternPhone = Pattern.compile( strPhonePattern );
+        _patternEmailField = Pattern.compile( strEmailFieldPattern );
     }
 
     /**
@@ -106,7 +113,8 @@ public final class ImportValidationSettings
         return new ImportValidationSettings( ImportColumns.fromProperties( ), ( strKey, args ) -> I18nService.getLocalizedString( strKey, args, locale ),
                 buildEmailChecker( ), LocalDateTime.now( ), AppPropertiesService.getPropertyInt( PROPERTY_MAX_ROWS, DEFAULT_MAX_ROWS ),
                 AppPropertiesService.getPropertyInt( PROPERTY_MAX_NAME_LENGTH, DEFAULT_MAX_NAME_LENGTH ),
-                AppPropertiesService.getProperty( PROPERTY_PHONE_PATTERN, DEFAULT_PHONE_PATTERN ) );
+                AppPropertiesService.getProperty( PROPERTY_PHONE_PATTERN, DEFAULT_PHONE_PATTERN ),
+                AppPropertiesService.getProperty( PROPERTY_EMAIL_FIELD_PATTERN, DEFAULT_EMAIL_FIELD_PATTERN ) );
     }
 
     /**
@@ -159,6 +167,16 @@ public final class ImportValidationSettings
     public boolean isValidPhoneNumber( String strPhoneNumber )
     {
         return _patternPhone.matcher( strPhoneNumber ).matches( );
+    }
+
+    /**
+     * @param strNormalizedName
+     *            the normalized title or code of a form field
+     * @return true if the value of the field must be an email
+     */
+    public boolean isEmailField( String strNormalizedName )
+    {
+        return strNormalizedName != null && _patternEmailField.matcher( strNormalizedName ).find( );
     }
 
     public LocalDateTime getNow( )

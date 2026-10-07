@@ -36,6 +36,7 @@ package fr.paris.lutece.plugins.appointment.modules.importer.business;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -57,8 +58,8 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             + " creation_date, last_exec_date FROM appointment_import_file";
     private static final String SQL_COLS_BATCH = "SELECT id_import_batch, id_import_file, import_file_name, id_form, starting_datetime, ending_datetime,"
             + " status, creation_date, last_exec_date FROM appointment_import_batch";
-    private static final String SQL_COLS_APPOINTMENT = "SELECT id_import_appointment, id_import_batch, source_line_number, generic_attributes_json,"
-            + " form_fields_json, status, error_code, error_message, id_appointment, creation_date, last_exec_date FROM appointment_import_appointment";
+    private static final String SQL_COLS_APPOINTMENT = "SELECT id_import_appointment, id_import_batch, source_line_number, generic_attributes_data,"
+            + " form_fields_data, status, error_code, error_message, id_appointment, creation_date, last_exec_date FROM appointment_import_appointment";
 
     private static final String SQL_INSERT_FILE = "INSERT INTO appointment_import_file"
             + " (import_file_name, id_form, admin_access_code, status, file_hash, validation_report, creation_date, last_exec_date)"
@@ -106,7 +107,7 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             + "', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ?";
 
     private static final String SQL_INSERT_APPOINTMENT = "INSERT INTO appointment_import_appointment"
-            + " (id_import_batch, source_line_number, generic_attributes_json, form_fields_json, status, error_code, error_message, id_appointment,"
+            + " (id_import_batch, source_line_number, generic_attributes_data, form_fields_data, status, error_code, error_message, id_appointment,"
             + " creation_date, last_exec_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     private static final String SQL_SELECT_APPOINTMENTS_BY_BATCH = SQL_COLS_APPOINTMENT + " WHERE id_import_batch = ?";
     private static final String SQL_FILTER_STATUS = " AND status = ?";
@@ -116,11 +117,34 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     private static final String SQL_UPDATE_APPOINTMENT = "UPDATE appointment_import_appointment"
             + " SET status = ?, error_code = ?, error_message = ?, id_appointment = ?, last_exec_date = ? WHERE id_import_appointment = ?";
     private static final String SQL_DELETE_APPOINTMENTS_BY_BATCH = "DELETE FROM appointment_import_appointment WHERE id_import_batch = ?";
+    private static final String SQL_SELECT_APPOINTMENT = SQL_COLS_APPOINTMENT + " WHERE id_import_appointment = ?";
+    private static final String SQL_UPDATE_APPOINTMENT_DATA = "UPDATE appointment_import_appointment SET generic_attributes_data = ?, form_fields_data = ?"
+            + " WHERE id_import_appointment = ?";
+    private static final String SQL_REQUEUE_ERROR_ROWS = "UPDATE appointment_import_appointment SET status = '" + AppointmentImportStatus.PENDING
+            + "', error_code = NULL, error_message = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status = '" + AppointmentImportStatus.ERROR
+            + "' AND ( error_code IS NULL OR error_code <> ? )";
+    private static final String SQL_REQUEUE_ROW = "UPDATE appointment_import_appointment SET status = '" + AppointmentImportStatus.PENDING
+            + "', error_code = NULL, error_message = NULL, last_exec_date = ? WHERE id_import_appointment = ? AND status = '"
+            + AppointmentImportStatus.ERROR + "'";
+    private static final String SQL_REQUEUE_BATCH = "UPDATE appointment_import_batch SET status = '" + AppointmentImportStatus.PENDING
+            + "', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status IN ('" + AppointmentImportStatus.COMPLETED + "','"
+            + AppointmentImportStatus.COMPLETED_WITH_ERRORS + "','" + AppointmentImportStatus.PENDING + "')";
+    private static final String SQL_COUNT_BY_FILES = "SELECT b.id_import_file, a.status, COUNT(*) FROM appointment_import_appointment a"
+            + " JOIN appointment_import_batch b ON b.id_import_batch = a.id_import_batch WHERE b.id_import_file IN (";
+    private static final String SQL_COUNT_BY_FILES_GROUP = ") GROUP BY b.id_import_file, a.status";
+    private static final String SQL_COUNT_BY_BATCHES = "SELECT id_import_batch, status, COUNT(*) FROM appointment_import_appointment WHERE id_import_batch IN (";
+    private static final String SQL_COUNT_BY_BATCHES_GROUP = ") GROUP BY id_import_batch, status";
+    // A file whose batches are all done but which is still pending: the instance that closed its last batch missed it
+    private static final String SQL_SELECT_FILE_IDS_TO_CLOSE = "SELECT f.id_import_file FROM appointment_import_file f WHERE f.status = '"
+            + AppointmentImportStatus.PENDING + "' AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file )"
+            + " AND NOT EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file AND b.status IN ('"
+            + AppointmentImportStatus.PENDING + "','" + AppointmentImportStatus.PROCESSING + "') )";
 
     private static final String SQL_AND_FILE_NAME = " AND import_file_name = ?";
     private static final String SQL_AND_STATUS = " AND status = ?";
     private static final String SQL_AND_FORM = " AND id_form = ?";
-    private static final String SQL_AND_DATE = " AND DATE(starting_datetime) = ?";
+    // A range rather than DATE( ), which is MySQL only
+    private static final String SQL_AND_DATE = " AND starting_datetime >= ? AND starting_datetime < ?";
     private static final String SQL_ORDER_BY_FILE_DESC = " ORDER BY id_import_file DESC";
     private static final String SQL_ORDER_BY_BATCH_DESC = " ORDER BY id_import_batch DESC";
     private static final String SQL_ORDER_BY_FILE_NAME = " ORDER BY import_file_name";
@@ -253,6 +277,21 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     }
 
     @Override
+    public List<Integer> selectFileIdsToClose( Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_SELECT_FILE_IDS_TO_CLOSE, plugin ) )
+        {
+            return selectIds( daoUtil );
+        }
+    }
+
+    @Override
+    public Map<Integer, ImportCounts> countAppointmentsByFiles( List<Integer> listFileIds, Plugin plugin )
+    {
+        return countAppointments( SQL_COUNT_BY_FILES, SQL_COUNT_BY_FILES_GROUP, listFileIds, plugin );
+    }
+
+    @Override
     public boolean fileHasErrors( int nFileId, Plugin plugin )
     {
         return exists( SQL_EXISTS_FILE_ERROR, nFileId, plugin );
@@ -379,7 +418,9 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             }
             if ( StringUtils.isNotBlank( strDate ) )
             {
-                daoUtil.setString( nIndex, strDate );
+                LocalDate date = LocalDate.parse( strDate );
+                daoUtil.setTimestamp( nIndex++, Timestamp.valueOf( date.atStartOfDay( ) ) );
+                daoUtil.setTimestamp( nIndex, Timestamp.valueOf( date.plusDays( 1 ).atStartOfDay( ) ) );
             }
             return selectIds( daoUtil );
         }
@@ -445,6 +486,25 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     public void updateBatchStatus( int nId, String strStatus, Plugin plugin )
     {
         updateStatus( SQL_UPDATE_BATCH_STATUS, nId, strStatus, plugin );
+    }
+
+    @Override
+    public boolean requeueBatch( int nBatchId, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_REQUEUE_BATCH, plugin ) )
+        {
+            daoUtil.setTimestamp( 1, Timestamp.valueOf( LocalDateTime.now( ) ) );
+            daoUtil.setInt( 2, nBatchId );
+            daoUtil.executeUpdate( );
+        }
+        AppointmentImportBatch batch = loadBatch( nBatchId, plugin );
+        return batch != null && AppointmentImportStatus.PENDING.equals( batch.getStatus( ) );
+    }
+
+    @Override
+    public Map<Integer, ImportCounts> countAppointmentsByBatches( List<Integer> listBatchIds, Plugin plugin )
+    {
+        return countAppointments( SQL_COUNT_BY_BATCHES, SQL_COUNT_BY_BATCHES_GROUP, listBatchIds, plugin );
     }
 
     @Override
@@ -541,6 +601,52 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     }
 
     @Override
+    public AppointmentImportAppointment loadAppointment( int nId, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_SELECT_APPOINTMENT, plugin ) )
+        {
+            daoUtil.setInt( 1, nId );
+            daoUtil.executeQuery( );
+            return daoUtil.next( ) ? mapAppointment( daoUtil ) : null;
+        }
+    }
+
+    @Override
+    public void updateAppointmentData( int nId, String strGenericAttributesData, String strFormFieldsData, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_UPDATE_APPOINTMENT_DATA, plugin ) )
+        {
+            daoUtil.setString( 1, strGenericAttributesData );
+            daoUtil.setString( 2, strFormFieldsData );
+            daoUtil.setInt( 3, nId );
+            daoUtil.executeUpdate( );
+        }
+    }
+
+    @Override
+    public void requeueErrorRows( int nBatchId, String strExcludedErrorCode, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_REQUEUE_ERROR_ROWS, plugin ) )
+        {
+            daoUtil.setTimestamp( 1, Timestamp.valueOf( LocalDateTime.now( ) ) );
+            daoUtil.setInt( 2, nBatchId );
+            daoUtil.setString( 3, strExcludedErrorCode );
+            daoUtil.executeUpdate( );
+        }
+    }
+
+    @Override
+    public void requeueRow( int nId, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_REQUEUE_ROW, plugin ) )
+        {
+            daoUtil.setTimestamp( 1, Timestamp.valueOf( LocalDateTime.now( ) ) );
+            daoUtil.setInt( 2, nId );
+            daoUtil.executeUpdate( );
+        }
+    }
+
+    @Override
     public void deleteAppointmentsByBatch( int nBatchId, Plugin plugin )
     {
         try ( DAOUtil daoUtil = new DAOUtil( SQL_DELETE_APPOINTMENTS_BY_BATCH, plugin ) )
@@ -581,6 +687,25 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             daoUtil.executeQuery( );
             return daoUtil.next( );
         }
+    }
+
+    private static Map<Integer, ImportCounts> countAppointments( String strSqlStart, String strSqlEnd, List<Integer> listIds, Plugin plugin )
+    {
+        Map<Integer, ImportCounts> mapCounts = new HashMap<>( );
+        if ( listIds.isEmpty( ) )
+        {
+            return mapCounts;
+        }
+        try ( DAOUtil daoUtil = new DAOUtil( strSqlStart + placeholders( listIds.size( ) ) + strSqlEnd, plugin ) )
+        {
+            bindInts( daoUtil, 1, listIds );
+            daoUtil.executeQuery( );
+            while ( daoUtil.next( ) )
+            {
+                mapCounts.computeIfAbsent( daoUtil.getInt( 1 ), nId -> new ImportCounts( ) ).add( daoUtil.getString( 2 ), daoUtil.getInt( 3 ) );
+            }
+        }
+        return mapCounts;
     }
 
     private static List<Integer> selectIdsBefore( String strSql, LocalDateTime dtBefore, Plugin plugin )

@@ -42,11 +42,25 @@
                 <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchProcessed}</div>
                 <div>${processed_rows_count} / ${total_rows_count}</div>
             </div>
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.columnRows}</div>
+                <div>
+                    <span class="text-success">${import_batch.counts.created} #i18n{module.appointment.importer.countCreated}</span>
+                    · <span class="<#if import_batch.counts.errors gt 0>text-danger<#else>text-muted</#if>">${import_batch.counts.errors} #i18n{module.appointment.importer.countErrors}</span>
+                </div>
+            </div>
         </div>
         <div class="mb-3 d-flex gap-2 flex-wrap">
             <@aButton href=batch_url title='#i18n{module.appointment.importer.buttonAllRows}' size='sm' color='secondary' />
             <@aButton href='${batch_url}&amp;status=ERROR' title='#i18n{module.appointment.importer.buttonErrors}' color='danger' size='sm' />
             <@aButton href='${batch_url}&amp;status=CREATED' title='#i18n{module.appointment.importer.buttonCreated}' color='success' size='sm' />
+            <#if can_retry && import_batch.status == 'COMPLETED_WITH_ERRORS'>
+            <form class="d-inline ms-auto" method="post" action="jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp">
+                <input type="hidden" name="token" value="${token_retry_batch}">
+                <input type="hidden" name="id_import_batch" value="${import_batch.idImportBatch}">
+                <@button type='submit' name='action_doRetryImportBatch' title='#i18n{module.appointment.importer.buttonRetryErrors}' color='warning' size='sm' buttonIcon='refresh' />
+            </form>
+            </#if>
         </div>
         <@table class='table-sm table-striped table-hover table-vcenter'>
             <thead>
@@ -66,6 +80,17 @@
                     <td class="text-end">
                         <#if row.idAppointment??>
                             <@aButton href='jsp/admin/plugins/appointment/ManageAppointments.jsp?view=viewAppointment&id_form=${import_batch.idForm}&id_appointment=${row.idAppointment}' title='#i18n{module.appointment.importer.buttonViewAppointment}' size='sm' buttonIcon='eye' />
+                        <#elseif can_retry && row.status == 'ERROR' && import_batch.status != 'PROCESSING' && import_batch.status != 'ARCHIVED'>
+                            <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=modifyImportRow&amp;id_import_appointment=${row.idImportAppointment}' title='#i18n{module.appointment.importer.buttonCorrectRow}' size='sm' buttonIcon='pencil' color='secondary' />
+                            <form class="d-inline" method="post" action="jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp">
+                                <input type="hidden" name="token" value="${token_retry_row}">
+                                <input type="hidden" name="id_import_appointment" value="${row.idImportAppointment}">
+                                <#if (row.errorCode!) == interrupted_code>
+                                <@button type='submit' name='action_doRetryImportRow' title='#i18n{module.appointment.importer.buttonRetryInterruptedRow}' color='danger' size='sm' buttonIcon='refresh' params='onclick="return confirm(\'#i18n{module.appointment.importer.confirmRetryInterruptedRow}\');"' />
+                                <#else>
+                                <@button type='submit' name='action_doRetryImportRow' title='#i18n{module.appointment.importer.buttonRetryRow}' color='warning' size='sm' buttonIcon='refresh' />
+                                </#if>
+                            </form>
                         </#if>
                     </td>
                 </tr>

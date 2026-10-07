@@ -49,7 +49,13 @@ final class AppointmentImportException extends RuntimeException
     /** The slot does not exist in the form calendar for the requested interval. */
     static final String SLOT_NOT_FOUND = "SLOT_NOT_FOUND";
 
-    /** The slot exists but is full or closed. */
+    /** The interval does not fall on the limits of the slots of the form. */
+    static final String SLOT_NOT_ALIGNED = "SLOT_NOT_ALIGNED";
+
+    /** The slot exists but is closed. */
+    static final String SLOT_CLOSED = "SLOT_CLOSED";
+
+    /** The slot is full, or no longer available when the appointment is saved. */
     static final String SLOT_FULL = "SLOT_FULL";
 
     /** The form has been deactivated since the file was uploaded. */
