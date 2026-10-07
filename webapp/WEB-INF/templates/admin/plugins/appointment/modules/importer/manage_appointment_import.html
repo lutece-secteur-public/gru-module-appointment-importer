@@ -1,0 +1,209 @@
+<#macro statusBadge status>
+    <#if status == 'COMPLETED'><@tag color='success'>#i18n{module.appointment.importer.status.COMPLETED}</@tag>
+    <#elseif status == 'COMPLETED_WITH_ERRORS'><@tag color='danger'>#i18n{module.appointment.importer.status.COMPLETED_WITH_ERRORS}</@tag>
+    <#elseif status == 'PROCESSING'><@tag color='warning'>#i18n{module.appointment.importer.status.PROCESSING}</@tag>
+    <#elseif status == 'VALIDATION_FAILED'><@tag color='danger'>#i18n{module.appointment.importer.status.VALIDATION_FAILED}</@tag>
+    <#else><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag></#if>
+</#macro>
+<@row><@columns><@box><@boxBody>
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item"><a class="nav-link <#if active_tab == 'import'>active</#if>" href="jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp">#i18n{module.appointment.importer.tabImport}</a></li>
+        <li class="nav-item"><a class="nav-link <#if active_tab == 'results'>active</#if>" href="jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?tab=results">#i18n{module.appointment.importer.tabResults}</a></li>
+    </ul>
+    <#if active_tab == 'import'>
+        <div id="import-overlay"
+             data-msg-upload="#i18n{module.appointment.importer.overlay.uploading}"
+             data-msg-validate="#i18n{module.appointment.importer.overlay.validating}"
+             data-msg-process="#i18n{module.appointment.importer.overlay.processing}"
+             style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;align-items:center;justify-content:center;"
+             aria-live="polite">
+            <div class="card shadow-lg border-0" style="min-width:320px;max-width:440px;width:90%;">
+                <div class="card-body text-center py-5 px-4">
+                    <div class="mb-4">
+                        <span class="spinner-border text-primary" style="width:3.5rem;height:3.5rem;border-width:.3em;" role="status" aria-hidden="true"></span>
+                    </div>
+                    <h3 class="card-title mb-2">#i18n{module.appointment.importer.overlay.title}</h3>
+                    <p class="text-muted mb-0" id="import-overlay-msg"></p>
+                </div>
+            </div>
+        </div>
+        <@tform name='appointment_import' action='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp' params='enctype="multipart/form-data"'>
+            <@input type='hidden' name='token' value='${token}' />
+            <@formGroup labelFor='id_form' labelKey='#i18n{module.appointment.importer.form}' mandatory=true><@select name='id_form' id='id_form' items=forms default_value='${selected_form_id!}' /></@formGroup>
+            <@formGroup labelFor='import_file' labelKey='#i18n{module.appointment.importer.file}' mandatory=true><@input type='file' name='import_file' id='import_file' params='accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"' /></@formGroup>
+            <@button type='submit' name='action' value='doImportWorkbook' buttonIcon='upload' title='#i18n{module.appointment.importer.import}' color='primary' id='btn-import' />
+            <#list infos as msg><div class="mt-3"><@alert color='success'>${msg.message?html}</@alert></div></#list>
+            <#list errors as msg><div class="mt-3"><@alert color='danger'>${msg.message?html}</@alert></div></#list>
+        </@tform>
+        <script>
+        ( function () {
+            var overlay = document.getElementById( 'import-overlay' );
+            var msgEl   = document.getElementById( 'import-overlay-msg' );
+            var btn     = document.getElementById( 'btn-import' );
+            var msgUpload   = overlay.dataset.msgUpload;
+            var msgValidate = overlay.dataset.msgValidate;
+            var msgProcess  = overlay.dataset.msgProcess;
+            var form = document.querySelector( 'form[name="appointment_import"]' );
+            if ( !form || !overlay ) return;
+            form.addEventListener( 'submit', function () {
+                msgEl.textContent = msgUpload;
+                overlay.style.display = 'flex';
+                setTimeout( function () { btn.disabled = true; }, 0 );
+                setTimeout( function () { msgEl.textContent = msgValidate; }, 4000 );
+                setTimeout( function () { msgEl.textContent = msgProcess;  }, 12000 );
+            } );
+        } )();
+        </script>
+        <#if validation_report_available>
+            <div class="mt-3">
+            <@alert color='danger'>
+                #i18n{module.appointment.importer.alertValidationFailed}
+                <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentValidationReport.jsp?id_import_file=${validation_report_file_id}' title='#i18n{module.appointment.importer.buttonViewReport}' buttonIcon='download' size='sm' />
+            </@alert>
+            </div>
+        <#elseif validation_errors?has_content>
+            <div class="mt-3">
+            <@alert color='danger'><#list validation_errors as error>${error.field?html} : ${error.message?html}<#if error_has_next><br></#if></#list></@alert>
+            </div>
+        </#if>
+    <#else>
+        <@row>
+        <@columns lg=10 offsetLg=1>
+        <@box class='border shadow-sm'>
+            <div class="card-header bg-light">
+                <h3 class="card-title">#i18n{module.appointment.importer.sectionFilters}</h3>
+                <div class="ms-auto"><@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?tab=results&reset=1' title='#i18n{module.appointment.importer.buttonResetFilters}' buttonIcon='refresh' color='secondary' size='sm' /></div>
+            </div>
+            <@boxBody>
+                <@tform action='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp' method='get'>
+                    <@input type='hidden' name='tab' value='results' />
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label" for="filter_file">#i18n{module.appointment.importer.labelFilterFile}</label>
+                            <select class="form-select" name="filter_file" id="filter_file">
+                                <option value="">#i18n{module.appointment.importer.selectFile}</option>
+                                <#list filter_files as f><option value="${f.importFileName?html}" <#if result_file == f.importFileName>selected</#if>>${f.importFileName?html}</option></#list>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="filter_form">#i18n{module.appointment.importer.form}</label>
+                            <@select name='filter_form' id='filter_form' items=forms default_value='${result_form_id!}' />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label" for="status">#i18n{module.appointment.importer.filterStatus}</label>
+                            <@select name='status' id='status' items=status_options default_value='${filter_status!}' />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="filter_date">#i18n{module.appointment.importer.filterDate}</label>
+                            <input class="form-control" type="date" name="filter_date" id="filter_date" value="${result_date!?html}">
+                        </div>
+                        <div class="col-md-1"><@button type='submit' title='#i18n{module.appointment.importer.buttonFilter}' buttonIcon='filter' color='primary' /></div>
+                    </div>
+                </@tform>
+            </@boxBody>
+        </@box>
+        <#if results_search_required>
+            <@alert color='info'>#i18n{module.appointment.importer.alertSearchRequired}</@alert>
+        <#elseif import_batches?has_content>
+            <@box class='border shadow-sm'>
+                <div class="card-header bg-light">
+                    <h3 class="card-title">#i18n{module.appointment.importer.sectionBatches} (${import_batches?size})</h3>
+                    <div class="ms-auto"><input class="form-control form-control-sm w-auto" type="search" id="batch-search" placeholder="..." aria-label="#i18n{module.appointment.importer.sectionBatches}"></div>
+                </div>
+                <@boxBody class='p-0'>
+                    <@table class='table-striped table-hover table-vcenter mb-0' id='import-results'>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>#i18n{module.appointment.importer.columnFile}</th>
+                                <th>#i18n{module.appointment.importer.columnForm}</th>
+                                <th>#i18n{module.appointment.importer.columnSlot}</th>
+                                <th>#i18n{module.appointment.importer.filterStatus}</th>
+                                <th>#i18n{module.appointment.importer.columnCreatedOn}</th>
+                                <th>#i18n{module.appointment.importer.columnActions}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <#list import_batches as batch>
+                            <tr>
+                                <td>${batch?counter}</td>
+                                <td>${batch.importFileName?html}</td>
+                                <td>${batch.formTitle?html}</td>
+                                <td>${batch.startingDateTimeLabel?html} – ${batch.endingTimeLabel?html}</td>
+                                <td><@statusBadge status=batch.status /></td>
+                                <td>${batch.creationDateLabel?html}</td>
+                                <td><@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=viewImportBatch&amp;id_import_batch=${batch.idImportBatch}&amp;return_filter_file=${result_file?url("UTF-8")}&amp;return_filter_form=${result_form_id?url("UTF-8")}&amp;return_filter_status=${filter_status?url("UTF-8")}&amp;return_filter_date=${result_date?url("UTF-8")}&amp;return_page_index=${current_page_index}&amp;return_items_per_page=${nb_items_per_page}' buttonIcon='eye' title='#i18n{module.appointment.importer.buttonViewBatch}' size='sm' /></td>
+                            </tr>
+                            </#list>
+                        </tbody>
+                    </@table>
+                    <div class="px-3 pb-3 import-paginator-wrap"><@paginationAdmin paginator=paginator combo=1 /></div>
+                </@boxBody>
+            </@box>
+        <#else>
+            <@alert color='info'>#i18n{module.appointment.importer.alertNoResults}</@alert>
+        </#if>
+        <#if import_files?has_content || file_paginator?? >
+            <@box class='border shadow-sm'>
+                <div class="card-header bg-light">
+                    <h3 class="card-title">#i18n{module.appointment.importer.sectionFiles} <#if file_paginator??>(${file_paginator.itemsCount})</#if></h3>
+                </div>
+                <@boxBody class='p-0'>
+                    <@table class='table-striped table-hover table-vcenter mb-0'>
+                        <thead>
+                            <tr>
+                                <th>#i18n{module.appointment.importer.columnFile}</th>
+                                <th>#i18n{module.appointment.importer.columnForm}</th>
+                                <th>#i18n{module.appointment.importer.filterStatus}</th>
+                                <th>#i18n{module.appointment.importer.columnImportedOn}</th>
+                                <th>#i18n{module.appointment.importer.columnReports}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <#list import_files as file>
+                            <tr>
+                                <td>${file.importFileName?html}</td>
+                                <td>${file.formTitle?html}</td>
+                                <td><@statusBadge status=file.status /></td>
+                                <td>${file.creationDateLabel?html}</td>
+                                <td>
+                                    <#if file.status == 'VALIDATION_FAILED'>
+                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentValidationReport.jsp?id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadValidationReport}' color='danger' size='sm' buttonIcon='download' />
+                                    <#else>
+                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImportReport.jsp?id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadReport}' size='sm' buttonIcon='download' />
+                                    </#if>
+                                    <#if file.status == 'COMPLETED_WITH_ERRORS'>
+                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImportFailedRows.jsp?id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadFailedRows}' color='danger' size='sm' buttonIcon='download' />
+                                    </#if>
+                                </td>
+                            </tr>
+                            </#list>
+                        </tbody>
+                    </@table>
+                    <#if file_paginator??>
+                    <div class="px-3 pb-3 import-paginator-wrap"><@paginationAdmin paginator=file_paginator combo=1 /></div>
+                    </#if>
+                </@boxBody>
+            </@box>
+        </#if>
+        </@columns>
+        </@row>
+    </#if>
+</@boxBody></@box></@columns></@row>
+<#if active_tab == 'results'><style>
+/* Center and vertically align the pagination links with the items-per-page form */
+.import-paginator-wrap .d-flex { align-items: center; justify-content: center; }
+</style>
+<script>
+document.addEventListener( 'DOMContentLoaded', () => {
+    const search = document.getElementById( 'batch-search' );
+    const table = document.getElementById( 'import-results' );
+    if ( !search || !table ) return;
+    search.addEventListener( 'input', () => {
+        const query = search.value.toLocaleLowerCase( 'fr' );
+        Array.from( table.tBodies[0].rows ).forEach( row => {
+            row.hidden = !row.textContent.toLocaleLowerCase( 'fr' ).includes( query );
+        } );
+    } );
+} );
+</script></#if>

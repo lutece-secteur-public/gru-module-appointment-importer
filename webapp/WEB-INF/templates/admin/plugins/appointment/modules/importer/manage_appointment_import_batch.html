@@ -1,0 +1,76 @@
+<#macro batchStatusBadge status>
+    <#if status == 'COMPLETED'><@tag color='success'>#i18n{module.appointment.importer.status.COMPLETED}</@tag>
+    <#elseif status == 'COMPLETED_WITH_ERRORS'><@tag color='danger'>#i18n{module.appointment.importer.status.COMPLETED_WITH_ERRORS}</@tag>
+    <#elseif status == 'PROCESSING'><@tag color='warning'>#i18n{module.appointment.importer.status.PROCESSING}</@tag>
+    <#elseif status == 'VALIDATION_FAILED'><@tag color='danger'>#i18n{module.appointment.importer.status.VALIDATION_FAILED}</@tag>
+    <#elseif status == 'PENDING'><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag>
+    <#else><@tag color='secondary'>${status?html}</@tag></#if>
+</#macro>
+<#macro rowStatusBadge status>
+    <#if status == 'CREATED'><@tag color='success'>#i18n{module.appointment.importer.status.CREATED}</@tag>
+    <#elseif status == 'ERROR'><@tag color='danger'>#i18n{module.appointment.importer.status.ERROR}</@tag>
+    <#elseif status == 'PENDING'><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag>
+    <#else><@tag color='secondary'>${status?html}</@tag></#if>
+</#macro>
+<@messages errors=errors warnings=warnings infos=infos />
+<@row><@columns lg=10 offsetLg=1>
+<@box class='border shadow-sm'>
+    <div class="card-header bg-light d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <h3 class="card-title mb-0">#i18n{module.appointment.importer.sectionBatches} — #${import_batch.idImportBatch}</h3>
+        <@aButton href=back_to_results_url buttonIcon='arrow-left' title='#i18n{module.appointment.importer.buttonBack}' size='sm' color='secondary' />
+    </div>
+    <@boxBody>
+        <div class="row g-3 mb-4 pb-3 border-bottom">
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchFile}</div>
+                <div>${import_batch.importFileName?html}</div>
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchForm}</div>
+                <div><#if import_batch.formTitle?has_content>${import_batch.formTitle?html}<#else>${import_batch.idForm}</#if></div>
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchSlot}</div>
+                <div>${import_batch.startingDateTimeLabel?html} – ${import_batch.endingTimeLabel?html}</div>
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchStatus}</div>
+                <div><@batchStatusBadge status=import_batch.status /></div>
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchProcessed}</div>
+                <div>${processed_rows_count} / ${total_rows_count}</div>
+            </div>
+        </div>
+        <div class="mb-3 d-flex gap-2 flex-wrap">
+            <@aButton href=batch_url title='#i18n{module.appointment.importer.buttonAllRows}' size='sm' color='secondary' />
+            <@aButton href='${batch_url}&amp;status=ERROR' title='#i18n{module.appointment.importer.buttonErrors}' color='danger' size='sm' />
+            <@aButton href='${batch_url}&amp;status=CREATED' title='#i18n{module.appointment.importer.buttonCreated}' color='success' size='sm' />
+        </div>
+        <@table class='table-sm table-striped table-hover table-vcenter'>
+            <thead>
+                <tr>
+                    <th class="text-center" style="width:90px" title="#i18n{module.appointment.importer.columnLineTooltip}">#i18n{module.appointment.importer.columnLine}</th>
+                    <th style="width:180px">#i18n{module.appointment.importer.filterStatus}</th>
+                    <th>#i18n{module.appointment.importer.columnError}</th>
+                    <th class="text-end" style="width:180px">#i18n{module.appointment.importer.columnAppointment}</th>
+                </tr>
+            </thead>
+            <tbody>
+                <#list import_rows as row>
+                <tr>
+                    <td class="text-center text-muted">${row.sourceLineNumber}</td>
+                    <td><@rowStatusBadge status=row.status /></td>
+                    <td class="text-muted small">${row.errorMessage!?html}</td>
+                    <td class="text-end">
+                        <#if row.idAppointment??>
+                            <@aButton href='jsp/admin/plugins/appointment/ManageAppointments.jsp?view=viewAppointment&id_form=${import_batch.idForm}&id_appointment=${row.idAppointment}' title='#i18n{module.appointment.importer.buttonViewAppointment}' size='sm' buttonIcon='eye' />
+                        </#if>
+                    </td>
+                </tr>
+                </#list>
+            </tbody>
+        </@table>
+    </@boxBody>
+</@box>
+</@columns></@row>

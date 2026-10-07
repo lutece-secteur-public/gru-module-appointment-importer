@@ -1,0 +1,287 @@
+/*
+ * Copyright (c) 2002-2026, City of Paris
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright notice
+ *     and the following disclaimer.
+ *
+ *  2. Redistributions in binary form must reproduce the above copyright notice
+ *     and the following disclaimer in the documentation and/or other materials
+ *     provided with the distribution.
+ *
+ *  3. Neither the name of 'Mairie de Paris' nor 'Lutece' nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *
+ * License 1.0
+ */
+package fr.paris.lutece.plugins.appointment.modules.importer.service;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFColor;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumn;
+import fr.paris.lutece.portal.service.i18n.I18nService;
+
+/** Produces administrator-downloadable reports from persistent importer data. */
+public final class AppointmentImportReportService
+{
+    private static final DateTimeFormatter FORMAT_DATE = DateTimeFormatter.ofPattern( "dd/MM/uuuu" );
+    private static final DateTimeFormatter FORMAT_TIME = DateTimeFormatter.ofPattern( "HH:mm" );
+
+    // Light blue-gray header background (RGB 221 235 247)
+    private static final byte [ ] HEADER_COLOR = { (byte) 221, (byte) 235, (byte) 247 };
+
+    private AppointmentImportReportService( )
+    {
+    }
+
+    /**
+     * Produces an XLSX workbook with one row per imported appointment.
+     *
+     * @param nFileId the {@code id_import_file}
+     * @param locale  the admin user's locale, used to localise report headers and statuses
+     * @return the XLSX bytes
+     */
+    public static byte [ ] finalReport( int nFileId, Locale locale ) throws IOException
+    {
+        try ( XSSFWorkbook workbook = new XSSFWorkbook( ); ByteArrayOutputStream output = new ByteArrayOutputStream( ) )
+        {
+            XSSFCellStyle headerStyle = buildHeaderStyle( workbook );
+
+            Sheet sheet = workbook.createSheet( I18nService.getLocalizedString( "module.appointment.importer.report.sheetName", locale ) );
+            sheet.createFreezePane( 0, 1 );
+
+            String [ ] listHeaders = {
+                    I18nService.getLocalizedString( "module.appointment.importer.report.slot",     locale ),
+                    I18nService.getLocalizedString( "module.appointment.importer.columnLine",       locale ),
+                    I18nService.getLocalizedString( "module.appointment.importer.filterStatus",     locale ),
+                    I18nService.getLocalizedString( "module.appointment.importer.report.rdvId",     locale ),
+                    I18nService.getLocalizedString( "module.appointment.importer.report.errorCode", locale ),
+                    I18nService.getLocalizedString( "module.appointment.importer.report.errorMsg",  locale ),
+            };
+            Row headerRow = sheet.createRow( 0 );
+            for ( int nCol = 0; nCol < listHeaders.length; nCol++ )
+            {
+                Cell cell = headerRow.createCell( nCol );
+                cell.setCellValue( listHeaders [ nCol ] );
+                cell.setCellStyle( headerStyle );
+            }
+
+            int nRowIndex = 1;
+            for ( AppointmentImportBatch batch : AppointmentImportHome.findBatchesByFile( nFileId ) )
+            {
+                String strSlot = batch.getStartingDateTime( ).toLocalDate( ).format( FORMAT_DATE )
+                        + "  ·  "
+                        + batch.getStartingDateTime( ).toLocalTime( ).format( FORMAT_TIME )
+                        + " – "
+                        + batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME );
+                for ( AppointmentImportAppointment appt : AppointmentImportHome.findAppointmentsByBatch( batch.getIdImportBatch( ), null ) )
+                {
+                    Row row = sheet.createRow( nRowIndex++ );
+                    row.createCell( 0 ).setCellValue( strSlot );
+                    row.createCell( 1 ).setCellValue( appt.getSourceLineNumber( ) );
+                    row.createCell( 2 ).setCellValue( localizeStatus( appt.getStatus( ), locale ) );
+                    row.createCell( 3 ).setCellValue( appt.getIdAppointment( ) == null ? "" : String.valueOf( appt.getIdAppointment( ) ) );
+                    row.createCell( 4 ).setCellValue( appt.getErrorCode( ) == null ? "" : appt.getErrorCode( ) );
+                    row.createCell( 5 ).setCellValue( appt.getErrorMessage( ) == null ? "" : appt.getErrorMessage( ) );
+                }
+            }
+
+            for ( int nCol = 0; nCol < listHeaders.length; nCol++ )
+            {
+                sheet.autoSizeColumn( nCol );
+            }
+            workbook.write( output );
+            return output.toByteArray( );
+        }
+    }
+
+    /**
+     * Produces an XLSX workbook listing all validation errors from the stored JSON report.
+     *
+     * @param strJson the serialised validation report (stored in {@code AppointmentImportFile})
+     * @param locale  the admin user's locale, used to localise report headers
+     * @return the XLSX bytes
+     */
+    public static byte [ ] validationReport( String strJson, Locale locale ) throws IOException
+    {
+        List<AppointmentValidationError> listErrors = AppointmentImportJsonService.readErrors( strJson );
+        try ( XSSFWorkbook workbook = new XSSFWorkbook( ); ByteArrayOutputStream output = new ByteArrayOutputStream( ) )
+        {
+            XSSFCellStyle headerStyle = buildHeaderStyle( workbook );
+            Sheet sheet = workbook.createSheet( I18nService.getLocalizedString( "module.appointment.importer.report.sheetNameValidation", locale ) );
+            sheet.createFreezePane( 0, 1 );
+            String [ ] listHeaders = {
+                    I18nService.getLocalizedString( "module.appointment.importer.line",    locale ),
+                    I18nService.getLocalizedString( "module.appointment.importer.field",   locale ),
+                    I18nService.getLocalizedString( "module.appointment.importer.message", locale ),
+            };
+            Row headerRow = sheet.createRow( 0 );
+            for ( int nCol = 0; nCol < listHeaders.length; nCol++ )
+            {
+                Cell cell = headerRow.createCell( nCol );
+                cell.setCellValue( listHeaders [ nCol ] );
+                cell.setCellStyle( headerStyle );
+            }
+            int nRowIndex = 1;
+            for ( AppointmentValidationError error : listErrors )
+            {
+                Row row = sheet.createRow( nRowIndex++ );
+                row.createCell( 0 ).setCellValue( error.getLineNumber( ) == null ? "" : String.valueOf( error.getLineNumber( ) ) );
+                row.createCell( 1 ).setCellValue( error.getField( ) == null ? "" : error.getField( ) );
+                row.createCell( 2 ).setCellValue( error.getMessage( ) == null ? "" : error.getMessage( ) );
+            }
+            for ( int nCol = 0; nCol < listHeaders.length; nCol++ )
+            {
+                sheet.autoSizeColumn( nCol );
+            }
+            workbook.write( output );
+            return output.toByteArray( );
+        }
+    }
+
+    /**
+     * Produces an XLSX workbook containing the rows that could not be imported, with all original columns preserved.
+     *
+     * @param nFileId the {@code id_import_file}
+     * @param locale  the admin user's locale, used to localise report headers
+     * @return the XLSX bytes
+     */
+    public static byte [ ] failedRowsWorkbook( int nFileId, Locale locale ) throws IOException
+    {
+        List<FailedRow> listFailedRows = new ArrayList<>( );
+        LinkedHashSet<String> setExtraFieldNames = new LinkedHashSet<>( );
+        for ( AppointmentImportBatch batch : AppointmentImportHome.findBatchesByFile( nFileId ) )
+        {
+            for ( AppointmentImportAppointment appointment : AppointmentImportHome.findAppointmentsByBatch( batch.getIdImportBatch( ), AppointmentImportStatus.ERROR ) )
+            {
+                Map<String, String> mapGeneric = AppointmentImportJsonService.readMap( appointment.getGenericAttributesJson( ) );
+                Map<String, String> mapFields = AppointmentImportJsonService.readMap( appointment.getFormFieldsJson( ) );
+                setExtraFieldNames.addAll( mapFields.keySet( ) );
+                listFailedRows.add( new FailedRow( batch, appointment, mapGeneric, mapFields ) );
+            }
+        }
+        try ( XSSFWorkbook workbook = new XSSFWorkbook( ); ByteArrayOutputStream output = new ByteArrayOutputStream( ) )
+        {
+            XSSFCellStyle headerStyle = buildHeaderStyle( workbook );
+
+            Sheet sheet = workbook.createSheet( I18nService.getLocalizedString( "module.appointment.importer.report.sheetNameFailed", locale ) );
+            sheet.createFreezePane( 0, 1 );
+
+            List<String> listLabels = new ArrayList<>( );
+            for ( ImportColumn column : ImportColumn.values( ) )
+            {
+                listLabels.add( column.getHeader( ) );
+            }
+            listLabels.addAll( setExtraFieldNames );
+            listLabels.add( I18nService.getLocalizedString( "module.appointment.importer.report.errorCode", locale ) );
+            listLabels.add( I18nService.getLocalizedString( "module.appointment.importer.report.errorMsg",  locale ) );
+
+            Row headerRow = sheet.createRow( 0 );
+            for ( int nCol = 0; nCol < listLabels.size( ); nCol++ )
+            {
+                Cell cell = headerRow.createCell( nCol );
+                cell.setCellValue( listLabels.get( nCol ) );
+                cell.setCellStyle( headerStyle );
+            }
+
+            int nRowIndex = 1;
+            for ( FailedRow failed : listFailedRows )
+            {
+                Row row = sheet.createRow( nRowIndex++ );
+                int nCol = 0;
+                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "lastName",    "" ) );
+                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "firstName",   "" ) );
+                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "email",       "" ) );
+                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "birthDate",   "" ) );
+                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "phoneNumber", "" ) );
+                row.createCell( nCol++ ).setCellValue( failed._batch.getStartingDateTime( ).toLocalDate( ).format( FORMAT_DATE ) );
+                row.createCell( nCol++ ).setCellValue( failed._batch.getStartingDateTime( ).toLocalTime( ).format( FORMAT_TIME ) );
+                row.createCell( nCol++ ).setCellValue( failed._batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME ) );
+                for ( String strFieldName : setExtraFieldNames )
+                {
+                    row.createCell( nCol++ ).setCellValue( failed._fields.getOrDefault( strFieldName, "" ) );
+                }
+                row.createCell( nCol++ ).setCellValue( failed._appointment.getErrorCode( ) == null ? "" : failed._appointment.getErrorCode( ) );
+                row.createCell( nCol ).setCellValue(   failed._appointment.getErrorMessage( ) == null ? "" : failed._appointment.getErrorMessage( ) );
+            }
+            for ( int nCol = 0; nCol < listLabels.size( ); nCol++ )
+            {
+                sheet.autoSizeColumn( nCol );
+            }
+            workbook.write( output );
+            return output.toByteArray( );
+        }
+    }
+
+    private static XSSFCellStyle buildHeaderStyle( XSSFWorkbook workbook )
+    {
+        Font font = workbook.createFont( );
+        font.setBold( true );
+        XSSFCellStyle style = workbook.createCellStyle( );
+        style.setFont( font );
+        style.setFillForegroundColor( new XSSFColor( HEADER_COLOR, null ) );
+        style.setFillPattern( FillPatternType.SOLID_FOREGROUND );
+        style.setBorderBottom( BorderStyle.THIN );
+        return style;
+    }
+
+    private static String localizeStatus( String strStatus, Locale locale )
+    {
+        return I18nService.getLocalizedString( "module.appointment.importer.status." + strStatus, locale );
+    }
+
+    private static final class FailedRow
+    {
+        private final AppointmentImportBatch _batch;
+        private final AppointmentImportAppointment _appointment;
+        private final Map<String, String> _generic;
+        private final Map<String, String> _fields;
+
+        private FailedRow( AppointmentImportBatch batch, AppointmentImportAppointment appointment,
+                Map<String, String> generic, Map<String, String> fields )
+        {
+            _batch = batch;
+            _appointment = appointment;
+            _generic = generic;
+            _fields = fields;
+        }
+    }
+}
