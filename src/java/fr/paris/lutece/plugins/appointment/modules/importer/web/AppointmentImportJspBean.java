@@ -47,7 +47,6 @@ import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.lang3.StringUtils;
 
 import fr.paris.lutece.plugins.appointment.business.form.Form;
-import fr.paris.lutece.plugins.appointment.business.form.FormHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
@@ -61,6 +60,7 @@ import fr.paris.lutece.plugins.appointment.modules.importer.service.AppointmentI
 import fr.paris.lutece.plugins.appointment.modules.importer.service.AppointmentImportRetryService;
 import fr.paris.lutece.plugins.appointment.modules.importer.service.AppointmentImportService;
 import fr.paris.lutece.plugins.appointment.service.AppointmentResourceIdService;
+import fr.paris.lutece.plugins.appointment.service.FormService;
 import fr.paris.lutece.portal.service.i18n.I18nService;
 import fr.paris.lutece.portal.service.rbac.RBACService;
 import fr.paris.lutece.portal.service.security.SecurityTokenService;
@@ -893,7 +893,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      */
     private ReferenceList getAuthorizedActiveForms( String strPermission )
     {
-        List<Form> listForms = new ArrayList<>( AdminWorkgroupService.getAuthorizedCollection( FormHome.findAllForms( ), getUser( ) ) );
+        List<Form> listForms = new ArrayList<>( AdminWorkgroupService.getAuthorizedCollection( FormService.findAllForms( ), getUser( ) ) );
         listForms = new ArrayList<>( RBACService.getAuthorizedCollection( listForms, strPermission, getUser( ) ) );
         ReferenceList listResult = new ReferenceList( );
         listResult.addItem( StringUtils.EMPTY, StringUtils.EMPTY );

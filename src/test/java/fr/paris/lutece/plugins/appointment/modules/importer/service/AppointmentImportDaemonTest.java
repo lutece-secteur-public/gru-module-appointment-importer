@@ -61,13 +61,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import fr.paris.lutece.plugins.appointment.business.appointment.Appointment;
-import fr.paris.lutece.plugins.appointment.business.appointment.AppointmentHome;
-import fr.paris.lutece.plugins.appointment.business.calendar.CalendarTemplate;
-import fr.paris.lutece.plugins.appointment.business.calendar.CalendarTemplateHome;
 import fr.paris.lutece.plugins.appointment.business.form.Form;
-import fr.paris.lutece.plugins.appointment.business.form.FormHome;
 import fr.paris.lutece.plugins.appointment.business.slot.Slot;
-import fr.paris.lutece.plugins.appointment.business.user.UserHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.AbstractLuteceIntegrationTest;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
@@ -75,8 +70,10 @@ import fr.paris.lutece.plugins.appointment.modules.importer.business.Appointment
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
+import fr.paris.lutece.plugins.appointment.service.AppointmentService;
 import fr.paris.lutece.plugins.appointment.service.FormService;
 import fr.paris.lutece.plugins.appointment.service.SlotService;
+import fr.paris.lutece.plugins.appointment.service.UserService;
 import fr.paris.lutece.plugins.appointment.web.dto.AppointmentFormDTO;
 import fr.paris.lutece.portal.service.image.ImageResource;
 import fr.paris.lutece.portal.service.plugin.PluginService;
@@ -127,12 +124,8 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         icon.setImage( new byte [ 0] );
         icon.setMimeType( "image/png" );
         form.setIcon( icon );
-        CalendarTemplate calendarTemplate = new CalendarTemplate( );
-        calendarTemplate.setTitle( "import" );
-        calendarTemplate.setDescription( "import" );
-        calendarTemplate.setTemplatePath( "import" );
-        CalendarTemplateHome.create( calendarTemplate );
-        form.setCalendarTemplateId( calendarTemplate.getIdCalendarTemplate( ) );
+        // The calendar template created by the init script of the appointment plugin
+        form.setCalendarTemplateId( 1 );
         form.setIsActive( true );
         _nFormId = FormService.createAppointmentForm( form );
         _monday = LocalDate.now( ).plusDays( 14 ).with( TemporalAdjusters.next( DayOfWeek.MONDAY ) );
@@ -162,9 +155,9 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         // After the closing time of 18:00
         assertEquals( "SLOT_NOT_FOUND", mapRows.get( 6 ).getErrorCode( ) );
 
-        Appointment appointment = AppointmentHome.findByPrimaryKey( mapRows.get( 2 ).getIdAppointment( ) );
+        Appointment appointment = AppointmentService.findAppointmentById( mapRows.get( 2 ).getIdAppointment( ) );
         assertEquals( "admin", appointment.getAdminUserCreate( ) );
-        assertEquals( "marie.dupont@paris.fr", UserHome.findByPrimaryKey( appointment.getIdUser( ) ).getEmail( ) );
+        assertEquals( "marie.dupont@paris.fr", UserService.findUserById( appointment.getIdUser( ) ).getEmail( ) );
         // Two appointments of one hour on slots of 30 minutes taking 3 people: 1 place left on each slot
         List<Slot> listSlots = SlotService.findSlotsByIdFormAndDateRange( _nFormId, _monday.atTime( TEN ), _monday.atTime( ELEVEN ) );
         assertEquals( 2, listSlots.size( ) );
@@ -212,8 +205,8 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         mapRows = rowsByLine( file );
         assertEquals( AppointmentImportStatus.CREATED, mapRows.get( 2 ).getStatus( ) );
         assertEquals( AppointmentImportStatus.CREATED, mapRows.get( 3 ).getStatus( ) );
-        Appointment appointment = AppointmentHome.findByPrimaryKey( mapRows.get( 2 ).getIdAppointment( ) );
-        assertEquals( "julie.moreau@corrige.fr", UserHome.findByPrimaryKey( appointment.getIdUser( ) ).getEmail( ) );
+        Appointment appointment = AppointmentService.findAppointmentById( mapRows.get( 2 ).getIdAppointment( ) );
+        assertEquals( "julie.moreau@corrige.fr", UserService.findUserById( appointment.getIdUser( ) ).getEmail( ) );
     }
 
     @Test
@@ -348,10 +341,10 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
 
     private static void setFormActive( boolean bActive )
     {
-        Form form = FormHome.findByPrimaryKey( _nFormId );
+        Form form = FormService.findFormLightByPrimaryKey( _nFormId );
         assertNotNull( form );
         form.setIsActive( bActive );
-        FormHome.update( form );
+        FormService.updateForm( form );
     }
 
     private static void execute( String strSql, LocalDateTime dtValue, int nId )
