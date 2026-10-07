@@ -40,9 +40,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
@@ -54,13 +54,16 @@ import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import fr.paris.lutece.plugins.appointment.business.appointment.Appointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumn;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumns;
+import fr.paris.lutece.plugins.appointment.service.AppointmentService;
 import fr.paris.lutece.portal.service.i18n.I18nService;
 
 /** Produces administrator-downloadable reports from persistent importer data. */
@@ -101,8 +104,7 @@ public final class AppointmentImportReportService
             }
         }
         ImportColumns columns = ImportColumns.fromProperties( );
-        Map<Integer, String> mapReferences = AppointmentImportHome.findAppointmentReferences( listRows.stream( )
-                .map( reportRow -> reportRow._appointment.getIdAppointment( ) ).filter( Objects::nonNull ).collect( Collectors.toList( ) ) );
+        Map<Integer, String> mapReferences = appointmentReferences( nFileId );
         try ( XSSFWorkbook workbook = new XSSFWorkbook( ); ByteArrayOutputStream output = new ByteArrayOutputStream( ) )
         {
             XSSFCellStyle headerStyle = buildHeaderStyle( workbook );
@@ -307,6 +309,26 @@ public final class AppointmentImportReportService
             default:
                 return failed._generic.getOrDefault( column.getAttributeKey( ), "" );
         }
+    }
+
+    /**
+     * Reads the references of the appointments of the form of a file through the appointment plugin, in one call rather than one per row.
+     *
+     * @param nFileId the {@code id_import_file}
+     * @return the reference of each appointment of the form
+     */
+    private static Map<Integer, String> appointmentReferences( int nFileId )
+    {
+        AppointmentImportFile file = AppointmentImportHome.findFile( nFileId );
+        Map<Integer, String> mapReferences = new HashMap<>( );
+        if ( file != null )
+        {
+            for ( Appointment appointment : AppointmentService.findListAppointmentByIdForm( file.getIdForm( ) ) )
+            {
+                mapReferences.put( appointment.getIdAppointment( ), Objects.toString( appointment.getReference( ), "" ) );
+            }
+        }
+        return mapReferences;
     }
 
     /**

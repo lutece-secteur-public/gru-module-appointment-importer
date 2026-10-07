@@ -51,7 +51,6 @@ import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColum
 import fr.paris.lutece.plugins.appointment.modules.importer.util.ImportTextUtils;
 import fr.paris.lutece.plugins.appointment.service.EntryService;
 import fr.paris.lutece.plugins.genericattributes.business.Entry;
-import fr.paris.lutece.plugins.genericattributes.business.EntryHome;
 import fr.paris.lutece.plugins.genericattributes.business.Field;
 import fr.paris.lutece.plugins.genericattributes.business.Response;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.AbstractEntryTypeCheckBox;
@@ -124,11 +123,11 @@ final class AppointmentFormEntries
     static AppointmentFormEntries load( int nFormId, ImportColumns columns )
     {
         List<Entry> listEntries = new ArrayList<>( );
-        for ( Entry entryLight : EntryService.getFilter( nFormId, true ) )
+        // Through the service of the appointment plugin, which loads each field completely, with its choices
+        for ( Entry entry : EntryService.findListEntry( nFormId ) )
         {
-            // The list does not carry the choices of the fields: load each field completely
-            Entry entry = EntryHome.findByPrimaryKey( entryLight.getIdEntry( ) );
-            if ( entry != null && entry.getEntryType( ) != null && !Boolean.TRUE.equals( entry.getEntryType( ).getComment( ) )
+            if ( entry != null && entry.getParent( ) == null && entry.getFieldDepend( ) == null && !entry.isOnlyDisplayInBack( )
+                    && entry.getEntryType( ) != null && !Boolean.TRUE.equals( entry.getEntryType( ).getComment( ) )
                     && !Boolean.TRUE.equals( entry.getEntryType( ).getGroup( ) ) )
             {
                 listEntries.add( entry );
