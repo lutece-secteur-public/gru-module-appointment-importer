@@ -1,0 +1,42 @@
+/* Overlay shown while a workbook is uploaded and validated */
+.import-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, .6);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+}
+
+.import-overlay.import-overlay-visible {
+    display: flex;
+}
+
+.import-overlay-card {
+    min-width: 320px;
+    max-width: 440px;
+    width: 90%;
+}
+
+.import-overlay-spinner {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-width: .3em;
+}
+
+/* Center and vertically align the pagination links with the items-per-page form */
+.import-paginator-wrap .d-flex {
+    align-items: center;
+    justify-content: center;
+}
+
+/* Columns of the rows of a batch */
+.import-col-line {
+    width: 90px;
+}
+
+.import-col-status,
+.import-col-appointment {
+    width: 180px;
+}

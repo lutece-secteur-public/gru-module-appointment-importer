@@ -37,7 +37,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Iterator;
-import java.util.Locale;
 
 import javax.xml.parsers.ParserConfigurationException;
 
@@ -66,13 +65,13 @@ public final class AppointmentExcelReader
      *
      * @param workbook
      *            the XLSX file content
-     * @param locale
-     *            the locale of the error messages
+     * @param settings
+     *            what the validation depends on
      * @return the valid rows and every error found; an unreadable file gives a single workbook error
      */
-    public AppointmentExcelValidationResult read( byte [ ] workbook, Locale locale )
+    public AppointmentExcelValidationResult read( byte [ ] workbook, ImportValidationSettings settings )
     {
-        AppointmentSheetReader sheetReader = new AppointmentSheetReader( locale );
+        AppointmentSheetReader sheetReader = new AppointmentSheetReader( settings );
         OPCPackage opcPackage = null;
         try
         {
@@ -92,7 +91,7 @@ public final class AppointmentExcelReader
         }
         catch( IOException | OpenXML4JException | SAXException | ParserConfigurationException | UnsupportedFileFormatException | POIXMLException e )
         {
-            AppLogService.info( "Appointment import: unreadable workbook - " + e.getMessage( ) );
+            AppLogService.debug( "Appointment import: unreadable workbook - " + e.getMessage( ) );
 
             return sheetReader.unreadable( );
         }

@@ -33,6 +33,8 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -50,7 +52,8 @@ public final class AppointmentExcelValidationResult
     {
         _validRows = List.copyOf( validRows );
         _errors = List.copyOf( errors );
-        _otherColumnNames = Set.copyOf( otherColumnNames );
+        // Keeps the order of the workbook, so that the errors on the columns follow it
+        _otherColumnNames = Collections.unmodifiableSet( new LinkedHashSet<>( otherColumnNames ) );
     }
 
     public List<AppointmentImportRow> getValidRows( )

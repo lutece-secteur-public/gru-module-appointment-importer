@@ -3,6 +3,7 @@
     <#elseif status == 'COMPLETED_WITH_ERRORS'><@tag color='danger'>#i18n{module.appointment.importer.status.COMPLETED_WITH_ERRORS}</@tag>
     <#elseif status == 'PROCESSING'><@tag color='warning'>#i18n{module.appointment.importer.status.PROCESSING}</@tag>
     <#elseif status == 'VALIDATION_FAILED'><@tag color='danger'>#i18n{module.appointment.importer.status.VALIDATION_FAILED}</@tag>
+    <#elseif status == 'ARCHIVED'><@tag color='secondary'>#i18n{module.appointment.importer.status.ARCHIVED}</@tag>
     <#else><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag></#if>
 </#macro>
 <@row><@columns><@box><@boxBody>
@@ -11,16 +12,15 @@
         <li class="nav-item"><a class="nav-link <#if active_tab == 'results'>active</#if>" href="jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?tab=results">#i18n{module.appointment.importer.tabResults}</a></li>
     </ul>
     <#if active_tab == 'import'>
-        <div id="import-overlay"
+        <div id="import-overlay" class="import-overlay"
              data-msg-upload="#i18n{module.appointment.importer.overlay.uploading}"
              data-msg-validate="#i18n{module.appointment.importer.overlay.validating}"
              data-msg-process="#i18n{module.appointment.importer.overlay.processing}"
-             style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;align-items:center;justify-content:center;"
              aria-live="polite">
-            <div class="card shadow-lg border-0" style="min-width:320px;max-width:440px;width:90%;">
+            <div class="card shadow-lg border-0 import-overlay-card">
                 <div class="card-body text-center py-5 px-4">
                     <div class="mb-4">
-                        <span class="spinner-border text-primary" style="width:3.5rem;height:3.5rem;border-width:.3em;" role="status" aria-hidden="true"></span>
+                        <span class="spinner-border text-primary import-overlay-spinner" role="status" aria-hidden="true"></span>
                     </div>
                     <h3 class="card-title mb-2">#i18n{module.appointment.importer.overlay.title}</h3>
                     <p class="text-muted mb-0" id="import-overlay-msg"></p>
@@ -47,7 +47,7 @@
             if ( !form || !overlay ) return;
             form.addEventListener( 'submit', function () {
                 msgEl.textContent = msgUpload;
-                overlay.style.display = 'flex';
+                overlay.classList.add( 'import-overlay-visible' );
                 setTimeout( function () { btn.disabled = true; }, 0 );
                 setTimeout( function () { msgEl.textContent = msgValidate; }, 4000 );
                 setTimeout( function () { msgEl.textContent = msgProcess;  }, 12000 );
@@ -58,7 +58,7 @@
             <div class="mt-3">
             <@alert color='danger'>
                 #i18n{module.appointment.importer.alertValidationFailed}
-                <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentValidationReport.jsp?id_import_file=${validation_report_file_id}' title='#i18n{module.appointment.importer.buttonViewReport}' buttonIcon='download' size='sm' />
+                <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImport.jsp?action=downloadValidationReport&amp;id_import_file=${validation_report_file_id}' title='#i18n{module.appointment.importer.buttonViewReport}' buttonIcon='download' size='sm' />
             </@alert>
             </div>
         <#elseif validation_errors?has_content>
@@ -82,12 +82,12 @@
                             <label class="form-label" for="filter_file">#i18n{module.appointment.importer.labelFilterFile}</label>
                             <select class="form-select" name="filter_file" id="filter_file">
                                 <option value="">#i18n{module.appointment.importer.selectFile}</option>
-                                <#list filter_files as f><option value="${f.importFileName?html}" <#if result_file == f.importFileName>selected</#if>>${f.importFileName?html}</option></#list>
+                                <#list filter_files as f><option value="${f?html}" <#if result_file == f>selected</#if>>${f?html}</option></#list>
                             </select>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label" for="filter_form">#i18n{module.appointment.importer.form}</label>
-                            <@select name='filter_form' id='filter_form' items=forms default_value='${result_form_id!}' />
+                            <@select name='filter_form' id='filter_form' items=result_forms default_value='${result_form_id!}' />
                         </div>
                         <div class="col-md-2">
                             <label class="form-label" for="status">#i18n{module.appointment.importer.filterStatus}</label>
@@ -168,12 +168,12 @@
                                 <td>${file.creationDateLabel?html}</td>
                                 <td>
                                     <#if file.status == 'VALIDATION_FAILED'>
-                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentValidationReport.jsp?id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadValidationReport}' color='danger' size='sm' buttonIcon='download' />
+                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImport.jsp?action=downloadValidationReport&amp;id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadValidationReport}' color='danger' size='sm' buttonIcon='download' />
                                     <#else>
-                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImportReport.jsp?id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadReport}' size='sm' buttonIcon='download' />
+                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImport.jsp?action=downloadReport&amp;id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadReport}' size='sm' buttonIcon='download' />
                                     </#if>
                                     <#if file.status == 'COMPLETED_WITH_ERRORS'>
-                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImportFailedRows.jsp?id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadFailedRows}' color='danger' size='sm' buttonIcon='download' />
+                                        <@aButton href='jsp/admin/plugins/appointment/modules/importer/DownloadAppointmentImport.jsp?action=downloadFailedRows&amp;id_import_file=${file.idImportFile}' title='#i18n{module.appointment.importer.buttonDownloadFailedRows}' color='danger' size='sm' buttonIcon='download' />
                                     </#if>
                                 </td>
                             </tr>
@@ -190,11 +190,7 @@
         </@row>
     </#if>
 </@boxBody></@box></@columns></@row>
-<#if active_tab == 'results'><style>
-/* Center and vertically align the pagination links with the items-per-page form */
-.import-paginator-wrap .d-flex { align-items: center; justify-content: center; }
-</style>
-<script>
+<#if active_tab == 'results'><script>
 document.addEventListener( 'DOMContentLoaded', () => {
     const search = document.getElementById( 'batch-search' );
     const table = document.getElementById( 'import-results' );

@@ -41,37 +41,31 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-
-import org.apache.commons.lang3.StringEscapeUtils;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentExcelValidationResult;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
-import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumn;
-import fr.paris.lutece.plugins.appointment.modules.importer.util.ImportTextUtils;
-import fr.paris.lutece.plugins.appointment.web.dto.AppointmentFormDTO;
-import fr.paris.lutece.plugins.genericattributes.business.EntryFilter;
-import fr.paris.lutece.plugins.genericattributes.business.EntryHome;
-import fr.paris.lutece.portal.service.i18n.I18nService;
+import fr.paris.lutece.portal.service.plugin.Plugin;
+import fr.paris.lutece.portal.service.plugin.PluginService;
 import fr.paris.lutece.portal.service.util.AppLogService;
+import fr.paris.lutece.util.sql.TransactionManager;
 
 /** Validates an upload then persists its immutable source data for daemon processing. */
 public final class AppointmentImportService
 {
-    private static final String ERROR_COLUMN_NOT_IN_FORM = "module.appointment.importer.error.column.notInForm";
-    private static final String ERROR_FORM_ENTRY_MISSING = "module.appointment.importer.error.column.missingInFile";
-
     private final AppointmentExcelReader _reader = new AppointmentExcelReader( );
 
     /**
      * Computes the SHA-256 hex digest of the given bytes.
      * Used to detect duplicate uploads before registering a new file.
+     *
+     * @param bytes the content
+     * @return the digest
      */
     public static String computeFileHash( byte [ ] bytes )
     {
@@ -97,94 +91,108 @@ public final class AppointmentImportService
      * Reads and validates the workbook, then persists the file record and all appointment rows.
      * If validation fails the file is stored with status {@code VALIDATION_FAILED} and no rows are created.
      *
-     * @param strFileHash pre-computed SHA-256 hex digest of {@code sourceFile}
+     * @param nFormId            the form
+     * @param strFileName        the name of the uploaded file
+     * @param sourceFile         the content of the file
+     * @param strFileHash        pre-computed SHA-256 hex digest of {@code sourceFile}
+     * @param strAdminAccessCode the access code of the administrator who uploads the file
+     * @param locale             the locale of the messages
      * @return the persisted {@link AppointmentImportFile} (check {@link AppointmentImportFile#getStatus()} to detect failures)
      */
-    public AppointmentImportFile register( int nFormId, String strFileName, byte [ ] sourceFile, String strFileHash, Locale locale )
+    public AppointmentImportFile register( int nFormId, String strFileName, byte [ ] sourceFile, String strFileHash, String strAdminAccessCode,
+            Locale locale )
     {
-        long lTotal = System.nanoTime( );
-
-        long lT = System.nanoTime( );
-        AppointmentExcelValidationResult validation = _reader.read( sourceFile, locale );
-        AppLogService.info( "Appointment import [{}] — parsing/validation: {} ms ({} rows, {} errors)",
-                strFileName, ms( lT ), validation.getValidRows( ).size( ), validation.getErrors( ).size( ) );
-
-        List<AppointmentValidationError> colErrors = validateFormColumns( validation.getOtherColumnNames( ), nFormId, locale );
-        if ( !colErrors.isEmpty( ) )
+        ImportValidationSettings settings = ImportValidationSettings.fromLutece( locale );
+        AppointmentExcelValidationResult validation = _reader.read( sourceFile, settings );
+        List<AppointmentValidationError> listErrors = new ArrayList<>( validation.getErrors( ) );
+        AppointmentFormEntries formEntries = AppointmentFormEntries.load( nFormId, settings.getColumns( ) );
+        listErrors.addAll( formEntries.validateColumns( validation.getOtherColumnNames( ), settings ) );
+        if ( listErrors.isEmpty( ) )
         {
-            List<AppointmentValidationError> allErrors = new ArrayList<>( validation.getErrors( ) );
-            allErrors.addAll( colErrors );
-            validation = new AppointmentExcelValidationResult( validation.getValidRows( ), allErrors, validation.getOtherColumnNames( ) );
+            for ( AppointmentImportRow row : validation.getValidRows( ) )
+            {
+                listErrors.addAll( formEntries.validateRow( row, settings ) );
+            }
         }
+        Map<String, List<AppointmentImportRow>> mapRowsBySlot = groupBySlot( validation.getValidRows( ) );
+        AppLogService.debug( "Appointment import [" + strFileName + "]: " + validation.getValidRows( ).size( ) + " rows, " + listErrors.size( ) + " errors" );
 
-        lT = System.nanoTime( );
         AppointmentImportFile file = new AppointmentImportFile( );
         file.setIdForm( nFormId );
         file.setImportFileName( strFileName );
+        file.setAdminAccessCode( strAdminAccessCode );
         file.setCreationDate( LocalDateTime.now( ) );
         file.setFileHash( strFileHash );
-        file.setValidationReport( AppointmentImportJsonService.writeErrors( validation.getErrors( ) ) );
-        file.setStatus( validation.hasErrors( ) ? AppointmentImportStatus.VALIDATION_FAILED : AppointmentImportStatus.PENDING );
-        file.setIdImportFile( AppointmentImportHome.createFile( file ) );
-        AppLogService.info( "Appointment import [{}] — createFile (DB): {} ms", strFileName, ms( lT ) );
-
-        if ( !validation.hasErrors( ) )
+        file.setValidationReport( AppointmentImportJsonService.writeErrors( listErrors ) );
+        file.setStatus( listErrors.isEmpty( ) ? AppointmentImportStatus.PENDING : AppointmentImportStatus.VALIDATION_FAILED );
+        // The daemon must not see a pending batch before all its rows are stored
+        Plugin plugin = PluginService.getPlugin( AppointmentImportHome.PLUGIN_NAME );
+        TransactionManager.beginTransaction( plugin );
+        try
         {
-            persistRows( file, validation.getValidRows( ) );
+            file.setIdImportFile( AppointmentImportHome.createFile( file ) );
+            if ( listErrors.isEmpty( ) )
+            {
+                persistRows( file, mapRowsBySlot );
+            }
+            TransactionManager.commitTransaction( plugin );
         }
-
-        AppLogService.info( "Appointment import [{}] — TOTAL: {} ms", strFileName, ms( lTotal ) );
+        catch( RuntimeException e )
+        {
+            TransactionManager.rollBack( plugin, e );
+            throw e;
+        }
         return file;
     }
 
     /**
-     * Groups rows by slot, creates the corresponding batches, then batch-inserts all appointment rows.
+     * Groups the rows by slot interval, in the order of the workbook.
      *
-     * @param file     the parent file record
-     * @param listRows validated rows to persist
+     * @param listRows the validated rows
+     * @return the rows of each interval
      */
-    private void persistRows( AppointmentImportFile file, List<AppointmentImportRow> listRows )
+    private static Map<String, List<AppointmentImportRow>> groupBySlot( List<AppointmentImportRow> listRows )
     {
-        long lT = System.nanoTime( );
-        Map<String, Integer> mapBatchIds = new LinkedHashMap<>( );
-        List<AppointmentImportAppointment> listAppointments = new ArrayList<>( );
-        LocalDateTime dtNow = LocalDateTime.now( );
+        Map<String, List<AppointmentImportRow>> mapRowsBySlot = new LinkedHashMap<>( );
         for ( AppointmentImportRow row : listRows )
         {
-            LocalDateTime dtStart = row.getAppointmentDate( ).atTime( row.getStartingTime( ) );
-            LocalDateTime dtEnd = row.getAppointmentDate( ).atTime( row.getEndingTime( ) );
-            String strKey = dtStart + "\u0000" + dtEnd;
-            int nBatchId = mapBatchIds.computeIfAbsent( strKey, unused -> createBatch( file, dtStart, dtEnd ) );
-            AppointmentImportAppointment appointment = new AppointmentImportAppointment( );
-            appointment.setIdImportBatch( nBatchId );
-            appointment.setSourceLineNumber( row.getLineNumber( ) );
-            appointment.setGenericAttributesJson( AppointmentImportJsonService.writeMap( row.getGenericAttributes( ) ) );
-            appointment.setFormFieldsJson( AppointmentImportJsonService.writeMap( row.getFormFields( ) ) );
-            appointment.setStatus( AppointmentImportStatus.PENDING );
-            appointment.setCreationDate( dtNow );
-            listAppointments.add( appointment );
+            String strKey = row.getAppointmentDate( ).atTime( row.getStartingTime( ) ) + "/" + row.getAppointmentDate( ).atTime( row.getEndingTime( ) );
+            mapRowsBySlot.computeIfAbsent( strKey, unused -> new ArrayList<>( ) ).add( row );
         }
-        AppLogService.info( "Appointment import [{}] — createBatches ({} batches) + JSON serialization ({} rows): {} ms",
-                file.getImportFileName( ), mapBatchIds.size( ), listAppointments.size( ), ms( lT ) );
-
-        if ( !listAppointments.isEmpty( ) )
-        {
-            lT = System.nanoTime( );
-            AppointmentImportHome.createAppointments( listAppointments );
-            AppLogService.info( "Appointment import [{}] — createAppointments batch INSERT ({} rows): {} ms",
-                    file.getImportFileName( ), listAppointments.size( ), ms( lT ) );
-        }
+        return mapRowsBySlot;
     }
 
     /**
-     * Returns the elapsed time in milliseconds since {@code lNanoStart}.
+     * Creates one batch per slot interval, then batch-inserts all appointment rows.
      *
-     * @param lNanoStart a timestamp captured with {@link System#nanoTime()}
-     * @return elapsed milliseconds
+     * @param file          the parent file record
+     * @param mapRowsBySlot the rows of each interval
      */
-    private static long ms( long lNanoStart )
+    private void persistRows( AppointmentImportFile file, Map<String, List<AppointmentImportRow>> mapRowsBySlot )
     {
-        return ( System.nanoTime( ) - lNanoStart ) / 1_000_000L;
+        List<AppointmentImportAppointment> listAppointments = new ArrayList<>( );
+        LocalDateTime dtNow = LocalDateTime.now( );
+        for ( List<AppointmentImportRow> listRows : mapRowsBySlot.values( ) )
+        {
+            AppointmentImportRow first = listRows.get( 0 );
+            int nBatchId = createBatch( file, first.getAppointmentDate( ).atTime( first.getStartingTime( ) ),
+                    first.getAppointmentDate( ).atTime( first.getEndingTime( ) ) );
+            for ( AppointmentImportRow row : listRows )
+            {
+                AppointmentImportAppointment appointment = new AppointmentImportAppointment( );
+                appointment.setIdImportBatch( nBatchId );
+                appointment.setSourceLineNumber( row.getLineNumber( ) );
+                appointment.setGenericAttributesJson( AppointmentImportJsonService.writeMap( row.getGenericAttributes( ) ) );
+                appointment.setFormFieldsJson( AppointmentImportJsonService.writeMap( row.getFormFields( ) ) );
+                appointment.setStatus( AppointmentImportStatus.PENDING );
+                appointment.setCreationDate( dtNow );
+                listAppointments.add( appointment );
+            }
+        }
+        if ( !listAppointments.isEmpty( ) )
+        {
+            AppointmentImportHome.createAppointments( listAppointments );
+        }
     }
 
     /**
@@ -206,57 +214,5 @@ public final class AppointmentImportService
         batch.setStatus( AppointmentImportStatus.PENDING );
         batch.setCreationDate( LocalDateTime.now( ) );
         return AppointmentImportHome.createBatch( batch );
-    }
-
-    /**
-     * Compares the extra Excel columns against the generic-attribute entries of the form.
-     * Returns one error per missing or unknown column.
-     */
-    private static List<AppointmentValidationError> validateFormColumns( Set<String> excelOtherCols, int nFormId, Locale locale )
-    {
-        EntryFilter filter = new EntryFilter( );
-        filter.setIdResource( nFormId );
-        filter.setResourceType( AppointmentFormDTO.RESOURCE_TYPE );
-        filter.setEntryParentNull( EntryFilter.FILTER_TRUE );
-        filter.setFieldDependNull( EntryFilter.FILTER_TRUE );
-        filter.setIdIsComment( EntryFilter.FILTER_FALSE );
-        filter.setIsOnlyDisplayInBack( EntryFilter.FILTER_FALSE );
-
-        // Entry.getTitle() returns HTML-encoded values (e.g. "CASPE d&#39;affectation").
-        // Unescape before comparing with the raw Excel column header.
-        Set<String> formEntryTitles = EntryHome.getEntryList( filter ).stream( )
-                .map( e -> StringEscapeUtils.unescapeHtml4( e.getTitle( ) ) )
-                .collect( Collectors.toCollection( java.util.LinkedHashSet::new ) );
-
-        // Columns defined in ImportColumn are handled separately and never appear in excelOtherCols.
-        // Exclude them from the bidirectional check so that a form entry whose title matches
-        // a standard column header is not flagged as missing from the Excel file.
-        Set<String> normalizedStandardHeaders = java.util.Arrays.stream( ImportColumn.values( ) )
-                .map( ImportColumn::getNormalizedHeader )
-                .collect( Collectors.toSet( ) );
-
-        List<AppointmentValidationError> errors = new ArrayList<>( );
-
-        for ( String col : excelOtherCols )
-        {
-            if ( !formEntryTitles.contains( col ) )
-            {
-                errors.add( AppointmentValidationError.workbook( col,
-                        I18nService.getLocalizedString( ERROR_COLUMN_NOT_IN_FORM, locale ) ) );
-            }
-        }
-        for ( String entry : formEntryTitles )
-        {
-            if ( normalizedStandardHeaders.contains( ImportTextUtils.normalize( entry ) ) )
-            {
-                continue; // Handled as a standard column — not required in the "other columns" section
-            }
-            if ( !excelOtherCols.contains( entry ) )
-            {
-                errors.add( AppointmentValidationError.workbook( entry,
-                        I18nService.getLocalizedString( ERROR_FORM_ENTRY_MISSING, locale ) ) );
-            }
-        }
-        return errors;
     }
 }

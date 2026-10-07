@@ -45,6 +45,7 @@ public class AppointmentImportFile
     private String _importFileName;
     private int _idForm;
     private String _formTitle;
+    private String _adminAccessCode;
     private String _status;
     private String _fileHash;
     private String _validationReport;
@@ -79,6 +80,16 @@ public class AppointmentImportFile
     public void setIdForm( int nValue )
     {
         _idForm = nValue;
+    }
+
+    public String getAdminAccessCode( )
+    {
+        return _adminAccessCode;
+    }
+
+    public void setAdminAccessCode( String strValue )
+    {
+        _adminAccessCode = strValue;
     }
 
     public String getFormTitle( )

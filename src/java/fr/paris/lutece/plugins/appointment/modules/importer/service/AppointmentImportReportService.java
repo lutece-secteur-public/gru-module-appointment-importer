@@ -54,9 +54,11 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumn;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumns;
 import fr.paris.lutece.portal.service.i18n.I18nService;
 
 /** Produces administrator-downloadable reports from persistent importer data. */
@@ -205,10 +207,11 @@ public final class AppointmentImportReportService
             Sheet sheet = workbook.createSheet( I18nService.getLocalizedString( "module.appointment.importer.report.sheetNameFailed", locale ) );
             sheet.createFreezePane( 0, 1 );
 
+            ImportColumns columns = ImportColumns.fromProperties( );
             List<String> listLabels = new ArrayList<>( );
             for ( ImportColumn column : ImportColumn.values( ) )
             {
-                listLabels.add( column.getHeader( ) );
+                listLabels.add( columns.getHeader( column ) );
             }
             listLabels.addAll( setExtraFieldNames );
             listLabels.add( I18nService.getLocalizedString( "module.appointment.importer.report.errorCode", locale ) );
@@ -227,14 +230,11 @@ public final class AppointmentImportReportService
             {
                 Row row = sheet.createRow( nRowIndex++ );
                 int nCol = 0;
-                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "lastName",    "" ) );
-                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "firstName",   "" ) );
-                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "email",       "" ) );
-                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "birthDate",   "" ) );
-                row.createCell( nCol++ ).setCellValue( failed._generic.getOrDefault( "phoneNumber", "" ) );
-                row.createCell( nCol++ ).setCellValue( failed._batch.getStartingDateTime( ).toLocalDate( ).format( FORMAT_DATE ) );
-                row.createCell( nCol++ ).setCellValue( failed._batch.getStartingDateTime( ).toLocalTime( ).format( FORMAT_TIME ) );
-                row.createCell( nCol++ ).setCellValue( failed._batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME ) );
+                // Same order as the headers: the order of ImportColumn
+                for ( ImportColumn column : ImportColumn.values( ) )
+                {
+                    row.createCell( nCol++ ).setCellValue( standardValue( column, failed ) );
+                }
                 for ( String strFieldName : setExtraFieldNames )
                 {
                     row.createCell( nCol++ ).setCellValue( failed._fields.getOrDefault( strFieldName, "" ) );
@@ -248,6 +248,28 @@ public final class AppointmentImportReportService
             }
             workbook.write( output );
             return output.toByteArray( );
+        }
+    }
+
+    /**
+     * Gives the value of a standard column for a failed row, as it was in the workbook.
+     *
+     * @param column the column
+     * @param failed the row
+     * @return the value
+     */
+    private static String standardValue( ImportColumn column, FailedRow failed )
+    {
+        switch( column )
+        {
+            case DATE:
+                return failed._batch.getStartingDateTime( ).toLocalDate( ).format( FORMAT_DATE );
+            case STARTING_TIME:
+                return failed._batch.getStartingDateTime( ).toLocalTime( ).format( FORMAT_TIME );
+            case ENDING_TIME:
+                return failed._batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME );
+            default:
+                return failed._generic.getOrDefault( column.getAttributeKey( ), "" );
         }
     }
 
