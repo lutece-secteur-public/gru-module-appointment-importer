@@ -41,6 +41,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
@@ -52,8 +54,6 @@ import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-import fr.paris.lutece.plugins.appointment.business.appointment.Appointment;
-import fr.paris.lutece.plugins.appointment.business.appointment.AppointmentHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
@@ -68,6 +68,9 @@ public final class AppointmentImportReportService
 {
     private static final DateTimeFormatter FORMAT_DATE = DateTimeFormatter.ofPattern( "dd/MM/uuuu" );
     private static final DateTimeFormatter FORMAT_TIME = DateTimeFormatter.ofPattern( "HH:mm" );
+    private static final int ROWS_FOR_WIDTH = 50;
+    private static final int MIN_COLUMN_WIDTH = 8;
+    private static final int MAX_COLUMN_WIDTH = 80;
 
     // Light blue-gray header background (RGB 221 235 247)
     private static final byte [ ] HEADER_COLOR = { (byte) 221, (byte) 235, (byte) 247 };
@@ -98,6 +101,8 @@ public final class AppointmentImportReportService
             }
         }
         ImportColumns columns = ImportColumns.fromProperties( );
+        Map<Integer, String> mapReferences = AppointmentImportHome.findAppointmentReferences( listRows.stream( )
+                .map( reportRow -> reportRow._appointment.getIdAppointment( ) ).filter( Objects::nonNull ).collect( Collectors.toList( ) ) );
         try ( XSSFWorkbook workbook = new XSSFWorkbook( ); ByteArrayOutputStream output = new ByteArrayOutputStream( ) )
         {
             XSSFCellStyle headerStyle = buildHeaderStyle( workbook );
@@ -139,7 +144,7 @@ public final class AppointmentImportReportService
                 row.createCell( nCol++ ).setCellValue( slotLabel( reportRow._batch ) );
                 row.createCell( nCol++ ).setCellValue( appt.getSourceLineNumber( ) );
                 row.createCell( nCol++ ).setCellValue( localizeStatus( appt.getStatus( ), locale ) );
-                row.createCell( nCol++ ).setCellValue( reference( appt.getIdAppointment( ) ) );
+                row.createCell( nCol++ ).setCellValue( appt.getIdAppointment( ) == null ? "" : mapReferences.getOrDefault( appt.getIdAppointment( ), "" ) );
                 row.createCell( nCol++ ).setCellValue( appt.getIdAppointment( ) == null ? "" : String.valueOf( appt.getIdAppointment( ) ) );
                 for ( ImportColumn column : ImportColumn.values( ) )
                 {
@@ -156,10 +161,7 @@ public final class AppointmentImportReportService
                 row.createCell( nCol ).setCellValue( appt.getErrorMessage( ) == null ? "" : appt.getErrorMessage( ) );
             }
 
-            for ( int nCol = 0; nCol < listHeaders.size( ); nCol++ )
-            {
-                sheet.autoSizeColumn( nCol );
-            }
+            setColumnWidths( sheet, nRowIndex, listHeaders.size( ) );
             workbook.write( output );
             return output.toByteArray( );
         }
@@ -173,20 +175,6 @@ public final class AppointmentImportReportService
     {
         return batch.getStartingDateTime( ).toLocalDate( ).format( FORMAT_DATE ) + "  ·  " + batch.getStartingDateTime( ).toLocalTime( ).format( FORMAT_TIME )
                 + " – " + batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME );
-    }
-
-    /**
-     * @param nIdAppointment the created appointment, or null
-     * @return its reference, or an empty string if there is none or it was deleted since
-     */
-    private static String reference( Integer nIdAppointment )
-    {
-        if ( nIdAppointment == null )
-        {
-            return "";
-        }
-        Appointment appointment = AppointmentHome.findByPrimaryKey( nIdAppointment );
-        return appointment == null || appointment.getReference( ) == null ? "" : appointment.getReference( );
     }
 
     /**
@@ -224,10 +212,7 @@ public final class AppointmentImportReportService
                 row.createCell( 1 ).setCellValue( error.getField( ) == null ? "" : error.getField( ) );
                 row.createCell( 2 ).setCellValue( error.getMessage( ) == null ? "" : error.getMessage( ) );
             }
-            for ( int nCol = 0; nCol < listHeaders.length; nCol++ )
-            {
-                sheet.autoSizeColumn( nCol );
-            }
+            setColumnWidths( sheet, nRowIndex, listHeaders.length );
             workbook.write( output );
             return output.toByteArray( );
         }
@@ -296,10 +281,7 @@ public final class AppointmentImportReportService
                 row.createCell( nCol++ ).setCellValue( failed._appointment.getErrorCode( ) == null ? "" : failed._appointment.getErrorCode( ) );
                 row.createCell( nCol ).setCellValue(   failed._appointment.getErrorMessage( ) == null ? "" : failed._appointment.getErrorMessage( ) );
             }
-            for ( int nCol = 0; nCol < listLabels.size( ); nCol++ )
-            {
-                sheet.autoSizeColumn( nCol );
-            }
+            setColumnWidths( sheet, nRowIndex, listLabels.size( ) );
             workbook.write( output );
             return output.toByteArray( );
         }
@@ -324,6 +306,31 @@ public final class AppointmentImportReportService
                 return failed._batch.getEndingDateTime( ).toLocalTime( ).format( FORMAT_TIME );
             default:
                 return failed._generic.getOrDefault( column.getAttributeKey( ), "" );
+        }
+    }
+
+    /**
+     * Sizes the columns from the first rows only: autoSizeColumn reads every cell of the sheet, which takes seconds on thousands of rows.
+     *
+     * @param sheet the sheet
+     * @param nRows the number of rows written, header included
+     * @param nColumns the number of columns
+     */
+    private static void setColumnWidths( Sheet sheet, int nRows, int nColumns )
+    {
+        for ( int nCol = 0; nCol < nColumns; nCol++ )
+        {
+            int nWidth = MIN_COLUMN_WIDTH;
+            for ( int nRow = 0; nRow < Math.min( nRows, ROWS_FOR_WIDTH ); nRow++ )
+            {
+                Row row = sheet.getRow( nRow );
+                Cell cell = row == null ? null : row.getCell( nCol );
+                if ( cell != null )
+                {
+                    nWidth = Math.max( nWidth, cell.toString( ).length( ) + 2 );
+                }
+            }
+            sheet.setColumnWidth( nCol, Math.min( nWidth, MAX_COLUMN_WIDTH ) * 256 );
         }
     }
 

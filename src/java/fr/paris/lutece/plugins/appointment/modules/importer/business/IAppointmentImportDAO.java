@@ -466,6 +466,17 @@ public interface IAppointmentImportDAO
     void requeueRow( int nId, Plugin plugin );
 
     /**
+     * Selects the references of the given appointments of the appointment plugin.
+     *
+     * @param listAppointmentIds
+     *            the appointments
+     * @param pluginAppointment
+     *            the appointment plugin, whose pool holds the appointments
+     * @return the reference of each appointment found
+     */
+    Map<Integer, String> selectAppointmentReferences( List<Integer> listAppointmentIds, Plugin pluginAppointment );
+
+    /**
      * Deletes the rows of a batch.
      *
      * @param nBatchId

@@ -271,6 +271,53 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         assertEquals( AppointmentImportStatus.COMPLETED, AppointmentImportHome.findFile( file.getIdImportFile( ) ).getStatus( ) );
     }
 
+    @Test
+    public void testFullSlotIsReportedAsFull( ) throws IOException
+    {
+        // The slots take 3 people: the fourth appointment of the same slot is refused by the appointment plugin
+        LocalDate friday = _monday.plusDays( 4 );
+        LocalTime start = LocalTime.of( 15, 0 );
+        LocalTime end = LocalTime.of( 15, 30 );
+        AppointmentImportFile file = register( "full.xlsx", row( "UN", "un@paris.fr", friday, start, end ), row( "DEUX", "deux@paris.fr", friday, start, end ),
+                row( "TROIS", "trois@paris.fr", friday, start, end ), row( "QUATRE", "quatre@paris.fr", friday, start, end ) );
+
+        new AppointmentImportDaemon( ).run( );
+
+        Map<Integer, AppointmentImportAppointment> mapRows = rowsByLine( file );
+        assertEquals( AppointmentImportStatus.CREATED, mapRows.get( 4 ).getStatus( ) );
+        assertEquals( "SLOT_FULL", mapRows.get( 5 ).getErrorCode( ) );
+    }
+
+    @Test
+    public void testRetryAndCorrectionAreRefusedWhileTheBatchIsProcessed( ) throws IOException
+    {
+        LocalDate thursday = _monday.plusDays( 10 );
+        AppointmentImportFile file = register( "refused.xlsx", row( "VIDAL", "vidal@paris.fr", thursday, TEN, ELEVEN ),
+                row( "WEBER", "weber@paris.fr", thursday, TEN, ELEVEN ) );
+        setFormActive( false );
+        new AppointmentImportDaemon( ).run( );
+        setFormActive( true );
+        Map<Integer, AppointmentImportAppointment> mapRows = rowsByLine( file );
+        AppointmentImportBatch batch = AppointmentImportHome.findBatchesByFile( file.getIdImportFile( ) ).get( 0 );
+        // Another instance takes the batch again
+        assertTrue( AppointmentImportHome.requeueBatch( batch.getIdImportBatch( ) ) );
+        assertTrue( AppointmentImportHome.claimPendingBatch( batch.getIdImportBatch( ), "other-instance" ) );
+
+        assertFalse( AppointmentImportRetryService.retryRow( mapRows.get( 2 ).getIdImportAppointment( ) ) );
+        Map<String, String> mapGeneric = AppointmentImportJsonService.readMap( mapRows.get( 3 ).getGenericAttributesJson( ) );
+        mapGeneric.put( "email", "weber.corrige@paris.fr" );
+        List<AppointmentValidationError> listErrors = AppointmentImportRetryService.correctRow( mapRows.get( 3 ).getIdImportAppointment( ),
+                new LinkedHashMap<>( mapGeneric ), new LinkedHashMap<>( ), Locale.FRANCE );
+
+        assertEquals( 1, listErrors.size( ) );
+        // Nothing was changed: the rows are still in error, the correction was not kept
+        Map<Integer, AppointmentImportAppointment> mapAfter = rowsByLine( file );
+        assertEquals( AppointmentImportStatus.ERROR, mapAfter.get( 2 ).getStatus( ) );
+        assertEquals( AppointmentImportStatus.ERROR, mapAfter.get( 3 ).getStatus( ) );
+        assertFalse( mapAfter.get( 3 ).getGenericAttributesJson( ).contains( "weber.corrige" ) );
+        AppointmentImportHome.updateBatchStatus( batch.getIdImportBatch( ), AppointmentImportStatus.COMPLETED_WITH_ERRORS );
+    }
+
     private AppointmentImportFile register( String strName, Object [ ]... rows ) throws IOException
     {
         byte [ ] content = ImportTestUtils.workbook( HEADERS, rows );

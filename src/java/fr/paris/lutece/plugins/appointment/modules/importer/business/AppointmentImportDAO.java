@@ -117,6 +117,8 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     private static final String SQL_UPDATE_APPOINTMENT = "UPDATE appointment_import_appointment"
             + " SET status = ?, error_code = ?, error_message = ?, id_appointment = ?, last_exec_date = ? WHERE id_import_appointment = ?";
     private static final String SQL_DELETE_APPOINTMENTS_BY_BATCH = "DELETE FROM appointment_import_appointment WHERE id_import_batch = ?";
+    private static final String SQL_SELECT_APPOINTMENT_REFERENCES = "SELECT id_appointment, reference FROM appointment_appointment WHERE id_appointment IN (";
+    private static final int MAX_IDS_PER_QUERY = 500;
     private static final String SQL_SELECT_APPOINTMENT = SQL_COLS_APPOINTMENT + " WHERE id_import_appointment = ?";
     private static final String SQL_UPDATE_APPOINTMENT_DATA = "UPDATE appointment_import_appointment SET generic_attributes_data = ?, form_fields_data = ?"
             + " WHERE id_import_appointment = ?";
@@ -644,6 +646,27 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             daoUtil.setInt( 2, nId );
             daoUtil.executeUpdate( );
         }
+    }
+
+    @Override
+    public Map<Integer, String> selectAppointmentReferences( List<Integer> listAppointmentIds, Plugin pluginAppointment )
+    {
+        Map<Integer, String> mapReferences = new HashMap<>( );
+        // By slices, so that a file of thousands of rows does not build a query of thousands of parameters
+        for ( int nStart = 0; nStart < listAppointmentIds.size( ); nStart += MAX_IDS_PER_QUERY )
+        {
+            List<Integer> listSlice = listAppointmentIds.subList( nStart, Math.min( nStart + MAX_IDS_PER_QUERY, listAppointmentIds.size( ) ) );
+            try ( DAOUtil daoUtil = new DAOUtil( SQL_SELECT_APPOINTMENT_REFERENCES + placeholders( listSlice.size( ) ) + ")", pluginAppointment ) )
+            {
+                bindInts( daoUtil, 1, listSlice );
+                daoUtil.executeQuery( );
+                while ( daoUtil.next( ) )
+                {
+                    mapReferences.put( daoUtil.getInt( 1 ), daoUtil.getString( 2 ) );
+                }
+            }
+        }
+        return mapReferences;
     }
 
     @Override

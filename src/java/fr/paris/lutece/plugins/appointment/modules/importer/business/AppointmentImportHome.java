@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import fr.paris.lutece.plugins.appointment.service.AppointmentPlugin;
 import fr.paris.lutece.portal.service.plugin.Plugin;
 import fr.paris.lutece.portal.service.plugin.PluginService;
 import fr.paris.lutece.portal.service.spring.SpringContextService;
@@ -517,6 +518,18 @@ public final class AppointmentImportHome
     public static void requeueRow( int nId )
     {
         _dao.requeueRow( nId, _plugin );
+    }
+
+    /**
+     * Finds the references of the given appointments.
+     *
+     * @param listAppointmentIds
+     *            the appointments
+     * @return the reference of each appointment found
+     */
+    public static Map<Integer, String> findAppointmentReferences( List<Integer> listAppointmentIds )
+    {
+        return _dao.selectAppointmentReferences( listAppointmentIds, PluginService.getPlugin( AppointmentPlugin.PLUGIN_NAME ) );
     }
 
     /**

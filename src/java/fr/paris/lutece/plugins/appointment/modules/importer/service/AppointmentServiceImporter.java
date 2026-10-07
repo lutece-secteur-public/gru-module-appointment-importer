@@ -126,8 +126,16 @@ public final class AppointmentServiceImporter
         }
         catch( SlotFullException e )
         {
-            // The appointment plugin also refuses a slot already started: both mean the slot can no longer take this appointment
-            throw new AppointmentImportException( AppointmentImportException.SLOT_FULL, "module.appointment.importer.error.import.slotUnavailable", e );
+            // SlotSafeService wraps every failure in a SlotFullException: only one caused by a SlotFullException is a slot problem
+            // (full, locked, already started); any other cause is a failure of the save itself
+            Throwable cause = e.getCause( );
+            if ( cause == null || cause instanceof SlotFullException )
+            {
+                throw new AppointmentImportException( AppointmentImportException.SLOT_FULL, "module.appointment.importer.error.import.slotUnavailable",
+                        e );
+            }
+            throw new AppointmentImportException( AppointmentImportException.SAVE_FAILED, "module.appointment.importer.error.import.saveFailed", e,
+                    cause.getMessage( ) != null ? cause.getMessage( ) : cause.getClass( ).getSimpleName( ) );
         }
         catch( RuntimeException e )
         {
