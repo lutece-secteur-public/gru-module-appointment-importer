@@ -73,6 +73,7 @@ final class AppointmentSheetReader implements SheetContentsHandler
     private static final String MESSAGE_FIELD_LINE = "module.appointment.importer.line";
     private static final String ERROR_WORKBOOK_UNREADABLE = "module.appointment.importer.error.workbook.unreadable";
     private static final String ERROR_WORKBOOK_NO_HEADER = "module.appointment.importer.error.workbook.noHeader";
+    private static final String ERROR_WORKBOOK_NO_ROWS = "module.appointment.importer.error.workbook.noRows";
     private static final String ERROR_WORKBOOK_TOO_MANY_ROWS = "module.appointment.importer.error.workbook.tooManyRows";
     private static final String ERROR_COLUMN_MISSING = "module.appointment.importer.error.column.missing";
     private static final String ERROR_COLUMN_DUPLICATE = "module.appointment.importer.error.column.duplicate";
@@ -187,6 +188,13 @@ final class AppointmentSheetReader implements SheetContentsHandler
             _workbookErrors.add( AppointmentValidationError.workbook( _settings.message( MESSAGE_FIELD_WORKBOOK ),
                     _settings.message( ERROR_WORKBOOK_NO_HEADER ) ) );
         }
+        else
+            if ( _workbookErrors.isEmpty( ) && _nDataRows == 0 )
+            {
+                // A file without rows would be accepted with no batch, and stay pending for ever
+                _workbookErrors.add( AppointmentValidationError.workbook( _settings.message( MESSAGE_FIELD_WORKBOOK ),
+                        _settings.message( ERROR_WORKBOOK_NO_ROWS ) ) );
+            }
         if ( _nDataRows > _settings.getMaxRows( ) )
         {
             _workbookErrors.add( AppointmentValidationError.workbook( _settings.message( MESSAGE_FIELD_WORKBOOK ),

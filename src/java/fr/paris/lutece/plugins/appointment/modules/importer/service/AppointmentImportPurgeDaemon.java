@@ -98,7 +98,11 @@ public final class AppointmentImportPurgeDaemon extends Daemon
             {
                 return false;
             }
-            AppointmentImportHome.purgeBatch( nBatchId );
+            if ( !AppointmentImportHome.purgeBatch( nBatchId ) )
+            {
+                // Retried since it was selected: purged later, once completed again
+                return false;
+            }
             if ( AppointmentImportHome.fileAllBatchesArchived( batch.getIdImportFile( ) ) )
             {
                 AppointmentImportHome.archiveFile( batch.getIdImportFile( ) );

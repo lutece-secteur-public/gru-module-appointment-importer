@@ -66,6 +66,8 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     private static final String SQL_SELECT_FILE = SQL_COLS_FILE + " WHERE id_import_file = ?";
     private static final String SQL_SELECT_FILE_IDS = "SELECT id_import_file FROM appointment_import_file WHERE id_form IN (";
+    private static final String SQL_AND_FILE_HAS_DATE = " AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b"
+            + " WHERE b.id_import_file = appointment_import_file.id_import_file AND b.starting_datetime >= ? AND b.starting_datetime < ? )";
     private static final String SQL_SELECT_FILES_BY_IDS = SQL_COLS_FILE + " WHERE id_import_file IN (";
     private static final String SQL_SELECT_FILE_NAMES = "SELECT DISTINCT import_file_name FROM appointment_import_file WHERE id_form IN (";
     private static final String SQL_EXISTS_DUPLICATE_FILE = "SELECT id_import_file FROM appointment_import_file"
@@ -103,8 +105,10 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
             + AppointmentImportStatus.ERROR + "'";
     private static final String SQL_SELECT_BATCH_IDS_TO_PURGE = "SELECT id_import_batch FROM appointment_import_batch WHERE last_exec_date < ? AND status IN ('"
             + AppointmentImportStatus.COMPLETED + "','" + AppointmentImportStatus.COMPLETED_WITH_ERRORS + "')";
+    // Only a batch still completed: a batch retried meanwhile must keep its rows
     private static final String SQL_ARCHIVE_BATCH = "UPDATE appointment_import_batch SET status = '" + AppointmentImportStatus.ARCHIVED
-            + "', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ?";
+            + "', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status IN ('" + AppointmentImportStatus.COMPLETED + "','"
+            + AppointmentImportStatus.COMPLETED_WITH_ERRORS + "')";
 
     private static final String SQL_INSERT_APPOINTMENT = "INSERT INTO appointment_import_appointment"
             + " (id_import_batch, source_line_number, generic_attributes_data, form_fields_data, status, error_code, error_message, id_appointment,"
@@ -186,13 +190,18 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     }
 
     @Override
-    public List<Integer> selectFileIds( List<Integer> listFormIds, String strFileName, String strStatus, Plugin plugin )
+    public List<Integer> selectFileIds( List<Integer> listFormIds, String strFormId, String strFileName, String strStatus, String strDate,
+            Plugin plugin )
     {
         if ( listFormIds.isEmpty( ) )
         {
             return new ArrayList<>( );
         }
         StringBuilder sbSql = new StringBuilder( SQL_SELECT_FILE_IDS ).append( placeholders( listFormIds.size( ) ) ).append( ')' );
+        if ( StringUtils.isNotBlank( strFormId ) )
+        {
+            sbSql.append( SQL_AND_FORM );
+        }
         if ( StringUtils.isNotBlank( strFileName ) )
         {
             sbSql.append( SQL_AND_FILE_NAME );
@@ -201,17 +210,31 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
         {
             sbSql.append( SQL_AND_STATUS );
         }
+        if ( StringUtils.isNotBlank( strDate ) )
+        {
+            sbSql.append( SQL_AND_FILE_HAS_DATE );
+        }
         sbSql.append( SQL_ORDER_BY_FILE_DESC );
         try ( DAOUtil daoUtil = new DAOUtil( sbSql.toString( ), plugin ) )
         {
             int nIndex = bindInts( daoUtil, 1, listFormIds );
+            if ( StringUtils.isNotBlank( strFormId ) )
+            {
+                daoUtil.setInt( nIndex++, Integer.parseInt( strFormId ) );
+            }
             if ( StringUtils.isNotBlank( strFileName ) )
             {
                 daoUtil.setString( nIndex++, strFileName );
             }
             if ( StringUtils.isNotBlank( strStatus ) )
             {
-                daoUtil.setString( nIndex, strStatus );
+                daoUtil.setString( nIndex++, strStatus );
+            }
+            if ( StringUtils.isNotBlank( strDate ) )
+            {
+                LocalDate date = LocalDate.parse( strDate );
+                daoUtil.setTimestamp( nIndex++, Timestamp.valueOf( date.atStartOfDay( ) ) );
+                daoUtil.setTimestamp( nIndex, Timestamp.valueOf( date.plusDays( 1 ).atStartOfDay( ) ) );
             }
             return selectIds( daoUtil );
         }
@@ -520,9 +543,11 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     }
 
     @Override
-    public void archiveBatch( int nBatchId, Plugin plugin )
+    public boolean archiveBatch( int nBatchId, Plugin plugin )
     {
         archive( SQL_ARCHIVE_BATCH, nBatchId, plugin );
+        AppointmentImportBatch batch = loadBatch( nBatchId, plugin );
+        return batch != null && AppointmentImportStatus.ARCHIVED.equals( batch.getStatus( ) );
     }
 
     // Rows

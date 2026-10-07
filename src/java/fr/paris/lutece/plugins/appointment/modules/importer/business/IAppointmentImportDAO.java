@@ -73,15 +73,19 @@ public interface IAppointmentImportDAO
      *
      * @param listFormIds
      *            the forms the files must belong to
+     * @param strFormId
+     *            optional form id
      * @param strFileName
      *            optional exact file name
      * @param strStatus
      *            optional exact status
+     * @param strDate
+     *            optional date (yyyy-MM-dd) of a slot of the file
      * @param plugin
      *            the plugin
      * @return the matching ids
      */
-    List<Integer> selectFileIds( List<Integer> listFormIds, String strFileName, String strStatus, Plugin plugin );
+    List<Integer> selectFileIds( List<Integer> listFormIds, String strFormId, String strFileName, String strStatus, String strDate, Plugin plugin );
 
     /**
      * Loads the files with the given ids, in the order of the list.
@@ -353,14 +357,15 @@ public interface IAppointmentImportDAO
     List<Integer> selectBatchIdsToPurge( LocalDateTime dtBefore, Plugin plugin );
 
     /**
-     * Archives a batch.
+     * Archives a batch, if it is still completed.
      *
      * @param nBatchId
      *            the {@code id_import_batch}
      * @param plugin
      *            the plugin
+     * @return true if the batch is archived, false if it was retried meanwhile
      */
-    void archiveBatch( int nBatchId, Plugin plugin );
+    boolean archiveBatch( int nBatchId, Plugin plugin );
 
     // Rows
 

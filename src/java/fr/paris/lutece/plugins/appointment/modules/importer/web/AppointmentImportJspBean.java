@@ -303,7 +303,8 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             paginator = new LocalizedPaginator<>( listBatchIds, nItemsPerPage, url.getUrl( ), AbstractPaginator.PARAMETER_PAGE_INDEX, strPageIndex, getLocale( ) );
             listBatches = AppointmentImportHome.findBatchesByIds( paginator.getPageItems( ) );
             listBatches.forEach( batch -> batch.setFormTitle( mapFormTitles.getOrDefault( batch.getIdForm( ), Integer.toString( batch.getIdForm( ) ) ) ) );
-            List<Integer> listFileIds = AppointmentImportHome.findFileIds( listAuthorizedFormIds, strFilterFile, strFilterStatus );
+            List<Integer> listFileIds = AppointmentImportHome.findFileIds( listAuthorizedFormIds, strFilterFormId, strFilterFile, strFilterStatus,
+                    strFilterDate );
             UrlItem fileUrl = new UrlItem( JSP_MANAGE_IMPORT );
             fileUrl.addParameter( PARAMETER_TAB, "results" );
             fileUrl.addParameter( PARAMETER_FILTER_FILE, strFilterFile );
