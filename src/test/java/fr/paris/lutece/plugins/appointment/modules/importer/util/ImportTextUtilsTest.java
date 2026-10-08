@@ -33,9 +33,9 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.util;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests the normalization used to compare headers and values.

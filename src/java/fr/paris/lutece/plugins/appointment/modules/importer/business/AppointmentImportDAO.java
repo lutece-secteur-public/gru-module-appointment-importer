@@ -48,10 +48,12 @@ import org.apache.commons.lang3.StringUtils;
 
 import fr.paris.lutece.portal.service.plugin.Plugin;
 import fr.paris.lutece.util.sql.DAOUtil;
+import jakarta.enterprise.context.ApplicationScoped;
 
 /**
  * SQL implementation of {@link IAppointmentImportDAO}.
  */
+@ApplicationScoped
 public final class AppointmentImportDAO implements IAppointmentImportDAO
 {
     private static final String SQL_COLS_FILE = "SELECT id_import_file, import_file_name, id_form, admin_access_code, status, file_hash, validation_report,"
@@ -68,25 +70,20 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     private static final String SQL_SELECT_FILE_IDS = "SELECT id_import_file FROM appointment_import_file WHERE id_form IN (";
     // A file stays pending while its batches are processed: "processing" means one of them is
     private static final String SQL_AND_FILE_IS_PROCESSING = " AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b"
-            + " WHERE b.id_import_file = appointment_import_file.id_import_file AND b.status = '" + AppointmentImportStatus.PROCESSING + "' )";
+            + " WHERE b.id_import_file = appointment_import_file.id_import_file AND b.status = 'PROCESSING' )";
     private static final String SQL_AND_FILE_HAS_DATE = " AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b"
             + " WHERE b.id_import_file = appointment_import_file.id_import_file AND b.starting_datetime >= ? AND b.starting_datetime < ? )";
     private static final String SQL_SELECT_FILES_BY_IDS = SQL_COLS_FILE + " WHERE id_import_file IN (";
     private static final String SQL_SELECT_FILE_NAMES = "SELECT DISTINCT import_file_name FROM appointment_import_file WHERE id_form IN (";
     private static final String SQL_EXISTS_DUPLICATE_FILE = "SELECT id_import_file FROM appointment_import_file"
-            + " WHERE file_hash = ? AND id_form = ? AND status != '" + AppointmentImportStatus.VALIDATION_FAILED + "'";
+            + " WHERE file_hash = ? AND id_form = ? AND status != 'VALIDATION_FAILED'";
     private static final String SQL_UPDATE_FILE_STATUS = "UPDATE appointment_import_file SET status = ?, last_exec_date = ? WHERE id_import_file = ?";
     private static final String SQL_EXISTS_FILE_ERROR = "SELECT a.id_import_appointment FROM appointment_import_appointment a"
-            + " JOIN appointment_import_batch b ON b.id_import_batch = a.id_import_batch WHERE b.id_import_file = ? AND a.status = '"
-            + AppointmentImportStatus.ERROR + "'";
-    private static final String SQL_COUNT_FILE_BATCHES_NOT_ARCHIVED = "SELECT COUNT(*) FROM appointment_import_batch WHERE id_import_file = ? AND status != '"
-            + AppointmentImportStatus.ARCHIVED + "'";
+            + " JOIN appointment_import_batch b ON b.id_import_batch = a.id_import_batch WHERE b.id_import_file = ? AND a.status = 'ERROR'";
+    private static final String SQL_COUNT_FILE_BATCHES_NOT_ARCHIVED = "SELECT COUNT(*) FROM appointment_import_batch WHERE id_import_file = ? AND status != 'ARCHIVED'";
     // A rejected file loses its hash so that the same content can be submitted again once corrected
-    private static final String SQL_ARCHIVE_FILE = "UPDATE appointment_import_file SET file_hash = CASE WHEN status = '"
-            + AppointmentImportStatus.VALIDATION_FAILED + "' THEN NULL ELSE file_hash END, status = '" + AppointmentImportStatus.ARCHIVED
-            + "', validation_report = NULL, last_exec_date = ? WHERE id_import_file = ?";
-    private static final String SQL_SELECT_REJECTED_FILES_TO_PURGE = "SELECT id_import_file FROM appointment_import_file WHERE status = '"
-            + AppointmentImportStatus.VALIDATION_FAILED + "' AND creation_date < ?";
+    private static final String SQL_ARCHIVE_FILE = "UPDATE appointment_import_file SET file_hash = CASE WHEN status = 'VALIDATION_FAILED' THEN NULL ELSE file_hash END, status = 'ARCHIVED', validation_report = NULL, last_exec_date = ? WHERE id_import_file = ?";
+    private static final String SQL_SELECT_REJECTED_FILES_TO_PURGE = "SELECT id_import_file FROM appointment_import_file WHERE status = 'VALIDATION_FAILED' AND creation_date < ?";
 
     private static final String SQL_INSERT_BATCH = "INSERT INTO appointment_import_batch"
             + " (id_import_file, import_file_name, id_form, starting_datetime, ending_datetime, status, creation_date, last_exec_date)"
@@ -96,22 +93,16 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     private static final String SQL_SELECT_BATCHES_BY_STATUS = SQL_COLS_BATCH + " WHERE status = ? ORDER BY id_import_batch";
     private static final String SQL_SELECT_BATCH_IDS = "SELECT id_import_batch FROM appointment_import_batch WHERE id_form IN (";
     private static final String SQL_SELECT_BATCHES_BY_IDS = SQL_COLS_BATCH + " WHERE id_import_batch IN (";
-    private static final String SQL_CLAIM_BATCH = "UPDATE appointment_import_batch SET status = '" + AppointmentImportStatus.PROCESSING
-            + "', processing_token = ?, last_exec_date = ? WHERE id_import_batch = ? AND status = ?";
+    private static final String SQL_CLAIM_BATCH = "UPDATE appointment_import_batch SET status = 'PROCESSING', processing_token = ?, last_exec_date = ? WHERE id_import_batch = ? AND status = ?";
     private static final String SQL_CLAIM_BATCH_LAST_EXEC_FILTER = " AND last_exec_date < ?";
-    private static final String SQL_SELECT_BATCH_TOKEN = "SELECT processing_token FROM appointment_import_batch WHERE id_import_batch = ? AND status = '"
-            + AppointmentImportStatus.PROCESSING + "'";
+    private static final String SQL_SELECT_BATCH_TOKEN = "SELECT processing_token FROM appointment_import_batch WHERE id_import_batch = ? AND status = 'PROCESSING'";
     private static final String SQL_TOUCH_BATCH = "UPDATE appointment_import_batch SET last_exec_date = ? WHERE id_import_batch = ?";
     private static final String SQL_UPDATE_BATCH_STATUS = "UPDATE appointment_import_batch SET status = ?, processing_token = NULL, last_exec_date = ?"
             + " WHERE id_import_batch = ?";
-    private static final String SQL_EXISTS_BATCH_ERROR = "SELECT id_import_appointment FROM appointment_import_appointment WHERE id_import_batch = ? AND status = '"
-            + AppointmentImportStatus.ERROR + "'";
-    private static final String SQL_SELECT_BATCH_IDS_TO_PURGE = "SELECT id_import_batch FROM appointment_import_batch WHERE last_exec_date < ? AND status IN ('"
-            + AppointmentImportStatus.COMPLETED + "','" + AppointmentImportStatus.COMPLETED_WITH_ERRORS + "')";
+    private static final String SQL_EXISTS_BATCH_ERROR = "SELECT id_import_appointment FROM appointment_import_appointment WHERE id_import_batch = ? AND status = 'ERROR'";
+    private static final String SQL_SELECT_BATCH_IDS_TO_PURGE = "SELECT id_import_batch FROM appointment_import_batch WHERE last_exec_date < ? AND status IN ('COMPLETED','COMPLETED_WITH_ERRORS')";
     // Only a batch still completed: a batch retried meanwhile must keep its rows
-    private static final String SQL_ARCHIVE_BATCH = "UPDATE appointment_import_batch SET status = '" + AppointmentImportStatus.ARCHIVED
-            + "', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status IN ('" + AppointmentImportStatus.COMPLETED + "','"
-            + AppointmentImportStatus.COMPLETED_WITH_ERRORS + "')";
+    private static final String SQL_ARCHIVE_BATCH = "UPDATE appointment_import_batch SET status = 'ARCHIVED', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status IN ('COMPLETED','COMPLETED_WITH_ERRORS')";
 
     private static final String SQL_INSERT_APPOINTMENT = "INSERT INTO appointment_import_appointment"
             + " (id_import_batch, source_line_number, generic_attributes_data, form_fields_data, status, error_code, error_message, id_appointment,"
@@ -120,32 +111,24 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     private static final String SQL_FILTER_STATUS = " AND status = ?";
     private static final String SQL_ORDER_BY_LINE = " ORDER BY source_line_number";
     private static final String SQL_COUNT_APPOINTMENTS_BY_BATCH = "SELECT COUNT(*) FROM appointment_import_appointment WHERE id_import_batch = ?";
-    private static final String SQL_FILTER_PROCESSED = " AND status IN ('" + AppointmentImportStatus.CREATED + "','" + AppointmentImportStatus.ERROR + "')";
+    private static final String SQL_FILTER_PROCESSED = " AND status IN ('CREATED','ERROR')";
     private static final String SQL_UPDATE_APPOINTMENT = "UPDATE appointment_import_appointment"
             + " SET status = ?, error_code = ?, error_message = ?, id_appointment = ?, last_exec_date = ? WHERE id_import_appointment = ?";
     private static final String SQL_DELETE_APPOINTMENTS_BY_BATCH = "DELETE FROM appointment_import_appointment WHERE id_import_batch = ?";
     private static final String SQL_SELECT_APPOINTMENT = SQL_COLS_APPOINTMENT + " WHERE id_import_appointment = ?";
     private static final String SQL_UPDATE_APPOINTMENT_DATA = "UPDATE appointment_import_appointment SET generic_attributes_data = ?, form_fields_data = ?"
             + " WHERE id_import_appointment = ?";
-    private static final String SQL_REQUEUE_ERROR_ROWS = "UPDATE appointment_import_appointment SET status = '" + AppointmentImportStatus.PENDING
-            + "', error_code = NULL, error_message = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status = '" + AppointmentImportStatus.ERROR
-            + "' AND ( error_code IS NULL OR error_code <> ? )";
-    private static final String SQL_REQUEUE_ROW = "UPDATE appointment_import_appointment SET status = '" + AppointmentImportStatus.PENDING
-            + "', error_code = NULL, error_message = NULL, last_exec_date = ? WHERE id_import_appointment = ? AND status = '"
-            + AppointmentImportStatus.ERROR + "'";
-    private static final String SQL_REQUEUE_BATCH = "UPDATE appointment_import_batch SET status = '" + AppointmentImportStatus.PENDING
-            + "', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status IN ('" + AppointmentImportStatus.COMPLETED + "','"
-            + AppointmentImportStatus.COMPLETED_WITH_ERRORS + "','" + AppointmentImportStatus.PENDING + "')";
+    private static final String SQL_REQUEUE_ERROR_ROWS = "UPDATE appointment_import_appointment SET status = 'PENDING', error_code = NULL, error_message = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status = 'ERROR' AND ( error_code IS NULL OR error_code <> ? )";
+    private static final String SQL_REQUEUE_ROW = "UPDATE appointment_import_appointment SET status = 'PENDING', error_code = NULL, error_message = NULL, last_exec_date = ? WHERE id_import_appointment = ? AND status = 'ERROR'";
+    private static final String SQL_REQUEUE_BATCH = "UPDATE appointment_import_batch SET status = 'PENDING', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status IN ('COMPLETED','COMPLETED_WITH_ERRORS','PENDING')";
     private static final String SQL_COUNT_BY_FILES = "SELECT b.id_import_file, a.status, COUNT(*) FROM appointment_import_appointment a"
             + " JOIN appointment_import_batch b ON b.id_import_batch = a.id_import_batch WHERE b.id_import_file IN (";
     private static final String SQL_COUNT_BY_FILES_GROUP = ") GROUP BY b.id_import_file, a.status";
     private static final String SQL_COUNT_BY_BATCHES = "SELECT id_import_batch, status, COUNT(*) FROM appointment_import_appointment WHERE id_import_batch IN (";
     private static final String SQL_COUNT_BY_BATCHES_GROUP = ") GROUP BY id_import_batch, status";
     // A file whose batches are all done but which is still pending: the instance that closed its last batch missed it
-    private static final String SQL_SELECT_FILE_IDS_TO_CLOSE = "SELECT f.id_import_file FROM appointment_import_file f WHERE f.status = '"
-            + AppointmentImportStatus.PENDING + "' AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file )"
-            + " AND NOT EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file AND b.status IN ('"
-            + AppointmentImportStatus.PENDING + "','" + AppointmentImportStatus.PROCESSING + "') )";
+    private static final String SQL_SELECT_FILE_IDS_TO_CLOSE = "SELECT f.id_import_file FROM appointment_import_file f WHERE f.status = 'PENDING' AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file )"
+            + " AND NOT EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file AND b.status IN ('PENDING','PROCESSING') )";
 
     private static final String SQL_AND_FILE_NAME = " AND import_file_name = ?";
     private static final String SQL_AND_STATUS = " AND status = ?";

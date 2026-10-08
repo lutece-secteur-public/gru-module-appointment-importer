@@ -54,11 +54,15 @@ import fr.paris.lutece.portal.service.plugin.Plugin;
 import fr.paris.lutece.portal.service.plugin.PluginService;
 import fr.paris.lutece.portal.service.util.AppLogService;
 import fr.paris.lutece.util.sql.TransactionManager;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 /** Validates an upload then persists its immutable source data for daemon processing. */
-public final class AppointmentImportService
+@ApplicationScoped
+public class AppointmentImportService
 {
-    private final AppointmentExcelReader _reader = new AppointmentExcelReader( );
+    @Inject
+    private AppointmentExcelReader _reader;
 
     /**
      * Computes the SHA-256 hex digest of the given bytes.
@@ -121,7 +125,7 @@ public final class AppointmentImportService
             }
         }
         Map<String, List<AppointmentImportRow>> mapRowsBySlot = groupBySlot( validation.getValidRows( ) );
-        AppLogService.debug( "Appointment import [" + strFileName + "]: " + validation.getValidRows( ).size( ) + " rows, " + listErrors.size( ) + " errors" );
+        AppLogService.debug( "Appointment import [{}]: {} rows, {} errors", strFileName, validation.getValidRows( ).size( ), listErrors.size( ) );
 
         AppointmentImportFile file = new AppointmentImportFile( );
         file.setIdForm( nFormId );

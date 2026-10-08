@@ -33,10 +33,10 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -57,13 +57,14 @@ import java.util.Map;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import jakarta.inject.Inject;
 
 import fr.paris.lutece.plugins.appointment.business.appointment.Appointment;
 import fr.paris.lutece.plugins.appointment.business.form.Form;
 import fr.paris.lutece.plugins.appointment.business.slot.Slot;
-import fr.paris.lutece.plugins.appointment.modules.importer.AbstractLuteceIntegrationTest;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
@@ -77,12 +78,13 @@ import fr.paris.lutece.plugins.appointment.service.UserService;
 import fr.paris.lutece.plugins.appointment.web.dto.AppointmentFormDTO;
 import fr.paris.lutece.portal.service.image.ImageResource;
 import fr.paris.lutece.portal.service.plugin.PluginService;
+import fr.paris.lutece.test.LuteceTestCase;
 import fr.paris.lutece.util.sql.DAOUtil;
 
 /**
  * Imports workbooks into a real appointment form and runs the daemon, on the database of the tests.
  */
-public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
+public class AppointmentImportDaemonTest extends LuteceTestCase
 {
     private static final List<String> HEADERS = ImportTestUtils.HEADERS.subList( 0, 8 );
     private static final LocalTime TEN = LocalTime.of( 10, 0 );
@@ -91,11 +93,19 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
     private static int _nFormId;
     private static LocalDate _monday;
 
-    private final AppointmentImportService _importService = new AppointmentImportService( );
+    @Inject
+    private AppointmentImportService _importService;
 
-    @BeforeClass
-    public static void createForm( )
+    /**
+     * Creates the form once, after Lutece is started by {@link LuteceTestCase#initCore( )}, a {@code @BeforeEach} of the parent run first.
+     */
+    @BeforeEach
+    public void createForm( )
     {
+        if ( _nFormId != 0 )
+        {
+            return;
+        }
         AppointmentFormDTO form = new AppointmentFormDTO( );
         form.setName( "import" );
         form.setTitle( "Import test " + System.nanoTime( ) );
@@ -151,7 +161,7 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         assertEquals( "SLOT_CLOSED", mapRows.get( 4 ).getErrorCode( ) );
         // 10:15 is inside the slot 10:00 - 10:30
         assertEquals( "SLOT_NOT_ALIGNED", mapRows.get( 5 ).getErrorCode( ) );
-        assertTrue( mapRows.get( 5 ).getErrorMessage( ), mapRows.get( 5 ).getErrorMessage( ).contains( "10:00 – 10:30" ) );
+        assertTrue( mapRows.get( 5 ).getErrorMessage( ).contains( "10:00 – 10:30" ), mapRows.get( 5 ).getErrorMessage( ) );
         // After the closing time of 18:00
         assertEquals( "SLOT_NOT_FOUND", mapRows.get( 6 ).getErrorCode( ) );
 
@@ -337,7 +347,7 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         String strFileName = System.nanoTime( ) + "-" + strName;
         AppointmentImportFile file = _importService.register( _nFormId, strFileName, content,
                 AppointmentImportService.computeFileHash( ( strFileName ).getBytes( ) ), "admin", Locale.FRANCE );
-        assertEquals( file.getValidationReport( ), AppointmentImportStatus.PENDING, file.getStatus( ) );
+        assertEquals( AppointmentImportStatus.PENDING, file.getStatus( ), file.getValidationReport( ) );
         return file;
     }
 

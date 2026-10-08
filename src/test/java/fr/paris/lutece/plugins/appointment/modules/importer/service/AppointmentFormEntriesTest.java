@@ -33,11 +33,11 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -49,7 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
@@ -89,7 +89,7 @@ public class AppointmentFormEntriesTest
                 new LinkedHashSet<>( Arrays.asList( "caspe_affectation", "Email du CAR", "niveau", "Jours" ) ), ImportTestUtils.settings( 10 ) );
 
         // The birth date field is filled from the standard column of the same name
-        assertTrue( listErrors.toString( ), listErrors.isEmpty( ) );
+        assertTrue( listErrors.isEmpty( ), listErrors.toString( ) );
     }
 
     @Test

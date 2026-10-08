@@ -41,11 +41,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import javax.servlet.http.HttpServletRequest;
-
-import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.lang3.StringUtils;
 
+import fr.paris.lutece.api.user.User;
 import fr.paris.lutece.plugins.appointment.business.form.Form;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
@@ -62,23 +60,33 @@ import fr.paris.lutece.plugins.appointment.modules.importer.service.AppointmentI
 import fr.paris.lutece.plugins.appointment.service.AppointmentResourceIdService;
 import fr.paris.lutece.plugins.appointment.service.FormService;
 import fr.paris.lutece.portal.service.i18n.I18nService;
+import fr.paris.lutece.portal.service.message.AdminMessage;
+import fr.paris.lutece.portal.service.message.AdminMessageService;
 import fr.paris.lutece.portal.service.rbac.RBACService;
-import fr.paris.lutece.portal.service.security.SecurityTokenService;
+import fr.paris.lutece.portal.service.upload.MultipartItem;
 import fr.paris.lutece.portal.service.util.AppLogService;
-import fr.paris.lutece.portal.service.util.AppPropertiesService;
 import fr.paris.lutece.portal.service.workgroup.AdminWorkgroupService;
 import fr.paris.lutece.portal.util.mvc.admin.MVCAdminJspBean;
 import fr.paris.lutece.portal.util.mvc.admin.annotations.Controller;
 import fr.paris.lutece.portal.util.mvc.commons.annotations.Action;
 import fr.paris.lutece.portal.util.mvc.commons.annotations.View;
+import fr.paris.lutece.portal.web.cdi.mvc.Models;
 import fr.paris.lutece.portal.web.upload.MultipartHttpServletRequest;
 import fr.paris.lutece.portal.web.util.LocalizedPaginator;
 import fr.paris.lutece.util.ReferenceList;
 import fr.paris.lutece.util.html.AbstractPaginator;
 import fr.paris.lutece.util.url.UrlItem;
+import jakarta.enterprise.context.SessionScoped;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import jakarta.servlet.http.HttpServletRequest;
 
 /** Administration views for persistent appointment imports. */
-@Controller( controllerJsp = "ManageAppointmentImport.jsp", controllerPath = "jsp/admin/plugins/appointment/modules/importer", right = "APPOINTMENT_IMPORT" )
+@SessionScoped
+@Named
+@Controller( controllerJsp = "ManageAppointmentImport.jsp", controllerPath = "jsp/admin/plugins/appointment/modules/importer/", right = "APPOINTMENT_IMPORT",
+        securityTokenEnabled = true )
 public class AppointmentImportJspBean extends MVCAdminJspBean
 {
     private static final long serialVersionUID = 1L;
@@ -87,12 +95,15 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     private static final String VIEW_MANAGE_IMPORT = "manageAppointmentImport";
     private static final String VIEW_IMPORT_BATCH = "viewImportBatch";
     private static final String VIEW_MODIFY_ROW = "modifyImportRow";
+    private static final String VIEW_CONFIRM_RETRY_FILE = "confirmRetryImportFile";
+    private static final String VIEW_CONFIRM_RETRY_ROW = "confirmRetryImportRow";
+    // The downloads read and change nothing: views, reached by GET links
+    private static final String VIEW_DOWNLOAD_VALIDATION_REPORT = "downloadValidationReport";
+    private static final String VIEW_DOWNLOAD_REPORT = "downloadReport";
+    private static final String VIEW_DOWNLOAD_FAILED_ROWS = "downloadFailedRows";
 
     // Actions
     private static final String ACTION_IMPORT_WORKBOOK = "doImportWorkbook";
-    private static final String ACTION_DOWNLOAD_VALIDATION_REPORT = "downloadValidationReport";
-    private static final String ACTION_DOWNLOAD_REPORT = "downloadReport";
-    private static final String ACTION_DOWNLOAD_FAILED_ROWS = "downloadFailedRows";
     private static final String ACTION_RETRY_BATCH = "doRetryImportBatch";
     private static final String ACTION_RETRY_FILE = "doRetryImportFile";
     private static final String ACTION_RETRY_ROW = "doRetryImportRow";
@@ -150,9 +161,6 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     private static final String MARK_ROW_ERRORS = "row_errors";
     private static final String MARK_CAN_RETRY = "can_retry";
     private static final String MARK_RETRY_FORM_IDS = "retry_form_ids";
-    private static final String MARK_TOKEN_RETRY_BATCH = "token_retry_batch";
-    private static final String MARK_TOKEN_RETRY_FILE = "token_retry_file";
-    private static final String MARK_TOKEN_RETRY_ROW = "token_retry_row";
     private static final String MARK_INTERRUPTED_CODE = "interrupted_code";
     private static final String MARK_PROCESSED_ROWS_COUNT = "processed_rows_count";
     private static final String MARK_TOTAL_ROWS_COUNT = "total_rows_count";
@@ -170,7 +178,9 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     private static final String MARK_BATCH_URL = "batch_url";
 
     // i18n keys
-    private static final String MESSAGE_INVALID_TOKEN = "portal.security.message.invalidToken";
+    private static final String KEY_CONFIRM_RETRY_FILE = "module.appointment.importer.message.confirmRetryFile";
+    private static final String KEY_CONFIRM_RETRY_ROW = "module.appointment.importer.message.confirmRetryRow";
+    private static final String KEY_CONFIRM_RETRY_INTERRUPTED_ROW = "module.appointment.importer.confirmRetryInterruptedRow";
     private static final String KEY_INFO_IMPORT_QUEUED = "module.appointment.importer.info.importQueued";
     private static final String KEY_INFO_RETRY_QUEUED = "module.appointment.importer.info.retryQueued";
     private static final String KEY_INFO_ROW_CORRECTED = "module.appointment.importer.info.rowCorrected";
@@ -185,6 +195,9 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     private static final String KEY_ERROR_FILE_DUPLICATE = "module.appointment.importer.error.file.duplicate";
     private static final String KEY_STATUS_PREFIX = "module.appointment.importer.status.";
     private static final String KEY_STATUS_ALL = "module.appointment.importer.statusAll";
+    private static final String KEY_SELECT_FILE = "module.appointment.importer.selectFile";
+    private static final String KEY_SELECT_FORM = "module.appointment.importer.selectForm";
+    private static final String KEY_ALL_FORMS = "module.appointment.importer.allForms";
 
     // Downloads
     private static final String CONTENT_TYPE_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -193,7 +206,14 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     private static final String FILE_NAME_FAILED_ROWS = "rendez-vous-non-importes-";
     private static final String EXTENSION_XLSX = ".xlsx";
 
-    private final AppointmentImportService _importService = new AppointmentImportService( );
+    @Inject
+    private AppointmentImportService _importService;
+    @Inject
+    @ConfigProperty( name = PROPERTY_ITEMS_PER_PAGE, defaultValue = "10" )
+    private int _nDefaultItemsPerPage;
+
+    @Inject
+    private Models _models;
     private List<AppointmentValidationError> _validationErrors = new ArrayList<>( );
     private String _selectedFormId = StringUtils.EMPTY;
     private Integer _validationReportFileId;
@@ -210,7 +230,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      * Filters applied on the results tab are persisted in the session so they survive tab switches and page navigation.
      * On a plain GET the transient validation error state is cleared; on a POST (called by an action) it is kept.
      */
-    @View( value = VIEW_MANAGE_IMPORT, defaultView = true )
+    @View( value = VIEW_MANAGE_IMPORT, defaultView = true, securityTokenAction = ACTION_IMPORT_WORKBOOK )
     public String getManageAppointmentImport( HttpServletRequest request )
     {
         // Clear transient error state on plain GET navigation (POST = called directly from the action, errors are fresh)
@@ -222,6 +242,9 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         // Importing creates appointments, only in an active form; the results show the people imported, even once the form is deactivated
         ReferenceList forms = getAuthorizedForms( AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT, true );
         ReferenceList resultForms = getAuthorizedForms( AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT, false );
+        // The empty item asks for a form on upload, and means every form in the filter of the results
+        forms.get( 0 ).setName( message( KEY_SELECT_FORM ) );
+        resultForms.get( 0 ).setName( message( KEY_ALL_FORMS ) );
         String strTab = "results".equals( request.getParameter( PARAMETER_TAB ) ) ? "results" : "import";
         Map<Integer, String> mapFormTitles = new HashMap<>( );
         List<Integer> listAuthorizedFormIds = resultForms.stream( )
@@ -270,7 +293,9 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             strFilterFormId = StringUtils.EMPTY;
             _strSavedFilterFormId = StringUtils.EMPTY;
         }
-        List<String> listFilterFiles = AppointmentImportHome.findFileNames( listAuthorizedFormIds );
+        ReferenceList listFilterFiles = new ReferenceList( );
+        listFilterFiles.addItem( StringUtils.EMPTY, message( KEY_SELECT_FILE ) );
+        AppointmentImportHome.findFileNames( listAuthorizedFormIds ).forEach( strName -> listFilterFiles.addItem( strName, strName ) );
         List<AppointmentImportBatch> listBatches;
         List<AppointmentImportFile> listFiles;
         LocalizedPaginator<Integer> paginator;
@@ -291,7 +316,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             //   nCurrent = _nItemsPerPage (session value, used when param absent from request)
             //   nDefault = property default (used only on the very first request when _nItemsPerPage == 0)
             _nItemsPerPage = AbstractPaginator.getItemsPerPage( request, AbstractPaginator.PARAMETER_ITEMS_PER_PAGE, _nItemsPerPage,
-                    AppPropertiesService.getPropertyInt( PROPERTY_ITEMS_PER_PAGE, 10 ) );
+                    _nDefaultItemsPerPage );
             nItemsPerPage = _nItemsPerPage;
             UrlItem url = new UrlItem( JSP_MANAGE_IMPORT );
             url.addParameter( PARAMETER_TAB, "results" );
@@ -318,7 +343,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             AppointmentImportHome.fillBatchCounts( listBatches );
             AppointmentImportHome.fillCounts( listFiles );
         }
-        Map<String, Object> model = getModel( );
+        Models model = _models;
         model.put( MARK_FORMS, forms );
         model.put( MARK_RESULT_FORMS, resultForms );
         model.put( MARK_SELECTED_FORM_ID, _selectedFormId );
@@ -338,10 +363,8 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         model.put( MARK_RESULT_DATE, strFilterDate );
         model.put( MARK_CURRENT_PAGE_INDEX, strPageIndex );
         model.put( MARK_STATUS_OPTIONS, getStatusOptions( ) );
-        model.put( SecurityTokenService.MARK_TOKEN, SecurityTokenService.getInstance( ).getToken( request, ACTION_IMPORT_WORKBOOK ) );
-        model.put( MARK_TOKEN_RETRY_FILE, SecurityTokenService.getInstance( ).getToken( request, ACTION_RETRY_FILE ) );
         model.put( MARK_RETRY_FORM_IDS, formIds( forms ) );
-        return getPage( PROPERTY_PAGE_TITLE, TEMPLATE_MANAGE_IMPORT, model );
+        return getPage( PROPERTY_PAGE_TITLE, TEMPLATE_MANAGE_IMPORT );
     }
 
     /**
@@ -357,11 +380,6 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         _validationErrors = new ArrayList<>( );
         _validationReportFileId = null;
         _selectedFormId = request.getParameter( PARAMETER_FORM_ID );
-        if ( !SecurityTokenService.getInstance( ).validate( request, ACTION_IMPORT_WORKBOOK ) )
-        {
-            addError( MESSAGE_INVALID_TOKEN, getLocale( ) );
-            return redirectView( request, VIEW_MANAGE_IMPORT );
-        }
         if ( !isAuthorizedForm( _selectedFormId, AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT, true ) )
         {
             _validationErrors.add( AppointmentValidationError.workbook( message( KEY_FORM ), message( KEY_ERROR_FORM_UNAUTHORIZED ) ) );
@@ -372,7 +390,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             _validationErrors.add( AppointmentValidationError.workbook( message( KEY_WORKBOOK ), message( KEY_ERROR_FILE_MISSING ) ) );
             return getManageAppointmentImport( request );
         }
-        FileItem file = ( (MultipartHttpServletRequest) request ).getFile( PARAMETER_WORKBOOK );
+        MultipartItem file = ( (MultipartHttpServletRequest) request ).getFile( PARAMETER_WORKBOOK );
         if ( file == null || StringUtils.isBlank( file.getName( ) ) || file.getSize( ) == 0 )
         {
             _validationErrors.add( AppointmentValidationError.workbook( message( KEY_WORKBOOK ), message( KEY_ERROR_FILE_REQUIRED ) ) );
@@ -419,7 +437,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      * Return-navigation parameters are threaded through so the back button restores the previous page and filters.
      * Redirects to the main view if the batch id is invalid or the user is not authorized for its form.
      */
-    @View( VIEW_IMPORT_BATCH )
+    @View( value = VIEW_IMPORT_BATCH, securityTokenAction = ACTION_RETRY_BATCH )
     public String getImportBatch( HttpServletRequest request )
     {
         int nBatchId;
@@ -449,11 +467,9 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         batchUrl.addParameter( PARAMETER_BATCH_ID, nBatchId );
         addReturnParameters( batchUrl, request );
         AppointmentImportHome.fillBatchCounts( java.util.Collections.singletonList( batch ) );
-        Map<String, Object> model = getModel( );
+        Models model = _models;
         model.put( MARK_BATCH, batch );
         model.put( MARK_CAN_RETRY, isAuthorizedForm( Integer.toString( batch.getIdForm( ) ), AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT ) );
-        model.put( MARK_TOKEN_RETRY_BATCH, SecurityTokenService.getInstance( ).getToken( request, ACTION_RETRY_BATCH ) );
-        model.put( MARK_TOKEN_RETRY_ROW, SecurityTokenService.getInstance( ).getToken( request, ACTION_RETRY_ROW ) );
         model.put( MARK_INTERRUPTED_CODE, AppointmentImportRetryService.INTERRUPTED );
         model.put( MARK_ROWS, AppointmentImportHome.findAppointmentsByBatch( nBatchId, strStatus ) );
         model.put( MARK_PROCESSED_ROWS_COUNT, AppointmentImportHome.countProcessedAppointmentsByBatch( nBatchId ) );
@@ -461,7 +477,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         model.put( MARK_FILTER_STATUS, strStatus );
         model.put( MARK_BACK_TO_RESULTS_URL, backToResultsUrl.getUrl( ) );
         model.put( MARK_BATCH_URL, batchUrl.getUrl( ) );
-        return getPage( PROPERTY_PAGE_TITLE, TEMPLATE_IMPORT_BATCH, model );
+        return getPage( PROPERTY_PAGE_TITLE, TEMPLATE_IMPORT_BATCH );
     }
 
     /**
@@ -474,13 +490,33 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     public String doRetryImportBatch( HttpServletRequest request )
     {
         AppointmentImportBatch batch = findBatch( request );
-        if ( batch == null || !SecurityTokenService.getInstance( ).validate( request, ACTION_RETRY_BATCH )
-                || !isAuthorizedForm( Integer.toString( batch.getIdForm( ) ), AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT ) )
+        if ( batch == null || !isAuthorizedForm( Integer.toString( batch.getIdForm( ) ), AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT ) )
         {
             return redirectView( request, VIEW_MANAGE_IMPORT );
         }
         addRetryMessage( AppointmentImportRetryService.retryBatch( batch.getIdImportBatch( ) ) );
         return redirect( request, VIEW_IMPORT_BATCH, PARAMETER_BATCH_ID, batch.getIdImportBatch( ) );
+    }
+
+    /**
+     * Asks to confirm the retry of the rows in error of a file: the confirmation posts the action with its token.
+     *
+     * @param request the request
+     * @return the redirection to the confirmation message
+     */
+    @View( value = VIEW_CONFIRM_RETRY_FILE, securityTokenAction = ACTION_RETRY_FILE )
+    public String getConfirmRetryImportFile( HttpServletRequest request )
+    {
+        AppointmentImportFile importFile = getAuthorizedFile( request, AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT );
+        if ( importFile == null )
+        {
+            return redirectView( request, VIEW_MANAGE_IMPORT );
+        }
+        UrlItem url = new UrlItem( getActionUrl( ACTION_RETRY_FILE ) );
+        url.addParameter( PARAMETER_FILE_ID, importFile.getIdImportFile( ) );
+        return redirect( request, AdminMessageService.getMessageUrl( request, KEY_CONFIRM_RETRY_FILE, new Object [ ] {
+                importFile.getImportFileName( )
+        }, url.getUrl( ), AdminMessage.TYPE_CONFIRMATION ) );
     }
 
     /**
@@ -493,13 +529,36 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     public String doRetryImportFile( HttpServletRequest request )
     {
         AppointmentImportFile importFile = getAuthorizedFile( request, AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT );
-        if ( importFile != null && SecurityTokenService.getInstance( ).validate( request, ACTION_RETRY_FILE ) )
+        if ( importFile != null )
         {
             addRetryMessage( AppointmentImportRetryService.retryFile( importFile.getIdImportFile( ) ) > 0 );
         }
         Map<String, String> mapParameters = new LinkedHashMap<>( );
         mapParameters.put( PARAMETER_TAB, "results" );
         return redirect( request, VIEW_MANAGE_IMPORT, mapParameters );
+    }
+
+    /**
+     * Asks to confirm the retry of one row in error, with a warning for an interrupted row whose appointment may exist.
+     *
+     * @param request the request
+     * @return the redirection to the confirmation message
+     */
+    @View( value = VIEW_CONFIRM_RETRY_ROW, securityTokenAction = ACTION_RETRY_ROW )
+    public String getConfirmRetryImportRow( HttpServletRequest request )
+    {
+        AppointmentImportAppointment row = getAuthorizedRow( request );
+        if ( row == null )
+        {
+            return redirectView( request, VIEW_MANAGE_IMPORT );
+        }
+        UrlItem url = new UrlItem( getActionUrl( ACTION_RETRY_ROW ) );
+        url.addParameter( PARAMETER_ROW_ID, row.getIdImportAppointment( ) );
+        String strMessage = AppointmentImportRetryService.INTERRUPTED.equals( row.getErrorCode( ) ) ? KEY_CONFIRM_RETRY_INTERRUPTED_ROW
+                : KEY_CONFIRM_RETRY_ROW;
+        return redirect( request, AdminMessageService.getMessageUrl( request, strMessage, new Object [ ] {
+                row.getSourceLineNumber( )
+        }, url.getUrl( ), AdminMessage.TYPE_CONFIRMATION ) );
     }
 
     /**
@@ -512,7 +571,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     public String doRetryImportRow( HttpServletRequest request )
     {
         AppointmentImportAppointment row = getAuthorizedRow( request );
-        if ( row == null || !SecurityTokenService.getInstance( ).validate( request, ACTION_RETRY_ROW ) )
+        if ( row == null )
         {
             return redirectView( request, VIEW_MANAGE_IMPORT );
         }
@@ -526,7 +585,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      * @param request the request
      * @return the page
      */
-    @View( VIEW_MODIFY_ROW )
+    @View( value = VIEW_MODIFY_ROW, securityTokenAction = ACTION_MODIFY_ROW )
     public String getModifyImportRow( HttpServletRequest request )
     {
         AppointmentImportAppointment row = getAuthorizedRow( request );
@@ -548,7 +607,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     public String doModifyImportRow( HttpServletRequest request )
     {
         AppointmentImportAppointment row = getAuthorizedRow( request );
-        if ( row == null || !SecurityTokenService.getInstance( ).validate( request, ACTION_MODIFY_ROW ) )
+        if ( row == null )
         {
             return redirectView( request, VIEW_MANAGE_IMPORT );
         }
@@ -602,14 +661,13 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             listFields.add( mapValue );
         }
         AppointmentImportBatch batch = AppointmentImportHome.findBatch( row.getIdImportBatch( ) );
-        Map<String, Object> model = getModel( );
+        Models model = _models;
         model.put( MARK_ROW, row );
         model.put( MARK_BATCH, batch );
         model.put( MARK_GENERIC_VALUES, listGeneric );
         model.put( MARK_FIELD_VALUES, listFields );
         model.put( MARK_ROW_ERRORS, listErrors );
-        model.put( SecurityTokenService.MARK_TOKEN, SecurityTokenService.getInstance( ).getToken( request, ACTION_MODIFY_ROW ) );
-        return getPage( PROPERTY_PAGE_TITLE, TEMPLATE_MODIFY_ROW, model );
+        return getPage( PROPERTY_PAGE_TITLE, TEMPLATE_MODIFY_ROW );
     }
 
     /**
@@ -694,7 +752,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      * @return null: the report is written to the response
      * @throws IOException if the report cannot be built
      */
-    @Action( ACTION_DOWNLOAD_VALIDATION_REPORT )
+    @View( VIEW_DOWNLOAD_VALIDATION_REPORT )
     public String doDownloadValidationReport( HttpServletRequest request ) throws IOException
     {
         // The validation report answers the upload: whoever may import on the form may read it
@@ -716,7 +774,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      * @return null: the report is written to the response
      * @throws IOException if the report cannot be built
      */
-    @Action( ACTION_DOWNLOAD_REPORT )
+    @View( VIEW_DOWNLOAD_REPORT )
     public String doDownloadReport( HttpServletRequest request ) throws IOException
     {
         AppointmentImportFile importFile = getAuthorizedFile( request, AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT );
@@ -736,7 +794,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      * @return null: the workbook is written to the response
      * @throws IOException if the workbook cannot be built
      */
-    @Action( ACTION_DOWNLOAD_FAILED_ROWS )
+    @View( VIEW_DOWNLOAD_FAILED_ROWS )
     public String doDownloadFailedRows( HttpServletRequest request ) throws IOException
     {
         AppointmentImportFile importFile = getAuthorizedFile( request, AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT );
@@ -775,7 +833,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         }
         catch( NumberFormatException e )
         {
-            AppLogService.debug( "Appointment import: invalid file id " + request.getParameter( PARAMETER_FILE_ID ) );
+            AppLogService.debug( "Appointment import: invalid file id {}", request.getParameter( PARAMETER_FILE_ID ) );
         }
         return null;
     }
@@ -909,8 +967,8 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      */
     private ReferenceList getAuthorizedForms( String strPermission, boolean bActiveOnly )
     {
-        List<Form> listForms = new ArrayList<>( AdminWorkgroupService.getAuthorizedCollection( FormService.findAllForms( ), getUser( ) ) );
-        listForms = new ArrayList<>( RBACService.getAuthorizedCollection( listForms, strPermission, getUser( ) ) );
+        List<Form> listForms = new ArrayList<>( AdminWorkgroupService.getAuthorizedCollection( FormService.findAllForms( ), (User) getUser( ) ) );
+        listForms = new ArrayList<>( RBACService.getAuthorizedCollection( listForms, strPermission, (User) getUser( ) ) );
         ReferenceList listResult = new ReferenceList( );
         listResult.addItem( StringUtils.EMPTY, StringUtils.EMPTY );
         for ( Form form : listForms )

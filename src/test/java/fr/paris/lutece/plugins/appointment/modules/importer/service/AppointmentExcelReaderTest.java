@@ -33,9 +33,9 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.time.LocalDate;
@@ -44,7 +44,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentExcelValidationResult;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
@@ -68,7 +68,7 @@ public class AppointmentExcelReaderTest
                 ImportTestUtils.sampleRow( "TESTNOM", "test@gmail.com", DATE, NINE, FIVE_PM ),
                 ImportTestUtils.sampleRow( "TESTNAME", "test2@gmail.com", DATE, NINE, FIVE_PM ) );
 
-        assertFalse( messages( result ).toString( ), result.hasErrors( ) );
+        assertFalse( result.hasErrors( ), messages( result ).toString( ) );
         assertEquals( 2, result.getValidRows( ).size( ) );
         AppointmentImportRow row = result.getValidRows( ).get( 0 );
         assertEquals( 2, row.getLineNumber( ) );
@@ -97,7 +97,7 @@ public class AppointmentExcelReaderTest
                 "DUPONT", "Marie", "marie.dupont@paris.fr", "06 12 34 56 78", "14/10/2026", "09:00", "12:00", "15/03/1980", "CASPE 18"
         } );
 
-        assertFalse( messages( result ).toString( ), result.hasErrors( ) );
+        assertFalse( result.hasErrors( ), messages( result ).toString( ) );
         AppointmentImportRow row = result.getValidRows( ).get( 0 );
         assertEquals( "0612345678", row.getPhoneNumber( ) );
         assertEquals( LocalDate.of( 2026, 10, 14 ), row.getAppointmentDate( ) );
@@ -167,8 +167,7 @@ public class AppointmentExcelReaderTest
                 ImportTestUtils.sampleRow( "TESTNOM", "test@gmail.com", DATE, NINE, FIVE_PM ),
                 ImportTestUtils.sampleRow( "testnom", "TEST@gmail.com", DATE, NINE, FIVE_PM ) );
 
-        assertTrue( messages( result ).toString( ),
-                messages( result ).contains( "3 module.appointment.importer.line : module.appointment.importer.error.row.duplicate 2" ) );
+        assertTrue( messages( result ).contains( "3 module.appointment.importer.line : module.appointment.importer.error.row.duplicate 2" ), messages( result ).toString( ) );
         assertEquals( 1, result.getValidRows( ).size( ) );
     }
 
@@ -177,8 +176,7 @@ public class AppointmentExcelReaderTest
     {
         AppointmentExcelValidationResult result = read( ImportTestUtils.HEADERS );
 
-        assertTrue( messages( result ).toString( ),
-                messages( result ).contains( "module.appointment.importer.workbook : module.appointment.importer.error.workbook.noRows" ) );
+        assertTrue( messages( result ).contains( "module.appointment.importer.workbook : module.appointment.importer.error.workbook.noRows" ), messages( result ).toString( ) );
     }
 
     @Test
@@ -204,8 +202,7 @@ public class AppointmentExcelReaderTest
                 ImportTestUtils.sampleRow( "A", "a@gmail.com", DATE, NINE, FIVE_PM ), ImportTestUtils.sampleRow( "B", "b@gmail.com", DATE, NINE, FIVE_PM ),
                 ImportTestUtils.sampleRow( "C", "c@gmail.com", DATE, NINE, FIVE_PM ) ), ImportTestUtils.settings( 2 ) );
 
-        assertTrue( messages( result ).toString( ),
-                messages( result ).contains( "module.appointment.importer.workbook : module.appointment.importer.error.workbook.tooManyRows 3 2" ) );
+        assertTrue( messages( result ).contains( "module.appointment.importer.workbook : module.appointment.importer.error.workbook.tooManyRows 3 2" ), messages( result ).toString( ) );
     }
 
     private AppointmentExcelValidationResult read( List<String> listHeaders, Object [ ]... rows ) throws IOException

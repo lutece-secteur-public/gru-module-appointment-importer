@@ -1,9 +1,9 @@
-<@messages errors=errors warnings=warnings infos=infos />
+<@messages errors=errors![] warnings=warnings![] infos=infos![] />
 <@row><@columns lg=8 offsetLg=2>
 <@box class='border shadow-sm'>
     <div class="card-header bg-light d-flex align-items-center justify-content-between flex-wrap gap-2">
         <h3 class="card-title mb-0">#i18n{module.appointment.importer.modifyRow.title} ${import_row.sourceLineNumber}</h3>
-        <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=viewImportBatch&amp;id_import_batch=${import_batch.idImportBatch}' buttonIcon='arrow-left' title='#i18n{module.appointment.importer.buttonBack}' size='sm' color='secondary' />
+        <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=viewImportBatch&amp;id_import_batch=${import_batch.idImportBatch}' buttonIcon='arrow-left' title='#i18n{module.appointment.importer.buttonBack}' size='sm' color='light' />
     </div>
     <@boxBody>
         <div class="mb-3">
@@ -16,7 +16,6 @@
             <@alert color='danger'><#list row_errors as error><#if error.field?has_content>${error.field?html} : </#if>${error.message?html}<#if error_has_next><br></#if></#list></@alert>
         </#if>
         <@tform name='modify_import_row' action='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp' method='post'>
-            <@input type='hidden' name='token' value='${token}' />
             <@input type='hidden' name='id_import_appointment' value='${import_row.idImportAppointment}' />
             <#list generic_values as value>
                 <@formGroup labelFor=value.name labelKey=value.label?html mandatory=(value.mandatory == 'true')>

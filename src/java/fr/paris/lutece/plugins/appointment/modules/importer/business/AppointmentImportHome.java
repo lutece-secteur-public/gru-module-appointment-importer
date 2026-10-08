@@ -40,8 +40,8 @@ import java.util.stream.Collectors;
 
 import fr.paris.lutece.portal.service.plugin.Plugin;
 import fr.paris.lutece.portal.service.plugin.PluginService;
-import fr.paris.lutece.portal.service.spring.SpringContextService;
 import fr.paris.lutece.util.sql.TransactionManager;
+import jakarta.enterprise.inject.spi.CDI;
 
 /**
  * Home for uploaded import files, slot batches and source rows.
@@ -51,7 +51,7 @@ public final class AppointmentImportHome
     /** Name of the module plugin */
     public static final String PLUGIN_NAME = "appointment-importer";
 
-    private static final IAppointmentImportDAO _dao = SpringContextService.getBean( "appointment-importer.appointmentImportDAO" );
+    private static final IAppointmentImportDAO _dao = CDI.current( ).select( IAppointmentImportDAO.class ).get( );
     private static final Plugin _plugin = PluginService.getPlugin( PLUGIN_NAME );
 
     private AppointmentImportHome( )

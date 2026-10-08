@@ -1,9 +1,9 @@
-<jsp:useBean id="appointmentImport" scope="session" class="fr.paris.lutece.plugins.appointment.modules.importer.web.AppointmentImportJspBean" />
-<% String strContent = appointmentImport.processController( request, response ); %>
-
 <%@ page errorPage="../../../../ErrorPage.jsp" %>
+
+${ pageContext.setAttribute( 'strContent', appointmentImportJspBean.processController( pageContext.request , pageContext.response ) ) }
+
 <jsp:include page="../../../../AdminHeader.jsp" />
 
-<%= strContent %>
+${ pageContext.getAttribute( 'strContent' ) }
 
 <%@ include file="../../../../AdminFooter.jsp" %>

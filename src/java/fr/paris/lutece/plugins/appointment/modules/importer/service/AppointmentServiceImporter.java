@@ -56,11 +56,13 @@ import fr.paris.lutece.plugins.appointment.service.SlotService;
 import fr.paris.lutece.plugins.appointment.service.WeekDefinitionService;
 import fr.paris.lutece.plugins.appointment.web.dto.AppointmentDTO;
 import fr.paris.lutece.portal.service.util.AppLogService;
+import jakarta.enterprise.context.ApplicationScoped;
 
 /**
  * Creates appointments through the Appointment plugin service.
  */
-public final class AppointmentServiceImporter
+@ApplicationScoped
+public class AppointmentServiceImporter
 {
     private static final DateTimeFormatter FORMAT_DT = DateTimeFormatter.ofPattern( "dd/MM/uuuu HH:mm" );
     private static final DateTimeFormatter FORMAT_DATE = DateTimeFormatter.ofPattern( "dd/MM/uuuu" );
@@ -131,7 +133,7 @@ public final class AppointmentServiceImporter
             // failing after the commit must not put in error an appointment that exists, or a retry would create it twice
             if ( appointment.getIsSaved( ) && appointment.getIdAppointment( ) > 0 )
             {
-                AppLogService.error( "Appointment import: appointment " + appointment.getIdAppointment( ) + " created, but a listener failed", e );
+                AppLogService.error( "Appointment import: appointment {} created, but a listener failed", appointment.getIdAppointment( ), e );
                 return appointment.getIdAppointment( );
             }
             // SlotSafeService wraps every failure in a SlotFullException: only one caused by a SlotFullException is a slot problem

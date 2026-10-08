@@ -111,7 +111,7 @@ public final class AppointmentImportPurgeDaemon extends Daemon
         }
         catch( RuntimeException e )
         {
-            AppLogService.error( "Appointment import purge: error purging batch " + nBatchId, e );
+            AppLogService.error( "Appointment import purge: error purging batch {}", nBatchId, e );
             return false;
         }
     }

@@ -1,9 +1,1 @@
-<jsp:useBean id="appointmentImport" scope="session" class="fr.paris.lutece.plugins.appointment.modules.importer.web.AppointmentImportJspBean" />
-<%
-    // The download actions write the workbook to the response and return null; any other result is a redirection
-    String strContent = appointmentImport.processController( request, response );
-    if ( strContent != null )
-    {
-        out.print( strContent );
-    }
-%>
+<%-- The download views write the workbook to the response: this page must write nothing, not even a line break --%><%@ page errorPage="../../../../ErrorPage.jsp" trimDirectiveWhitespaces="true" %>${ pageContext.setAttribute( 'strContent', appointmentImportJspBean.processController( pageContext.request , pageContext.response ) ) }

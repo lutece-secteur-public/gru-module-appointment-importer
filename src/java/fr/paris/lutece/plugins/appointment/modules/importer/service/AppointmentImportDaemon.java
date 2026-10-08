@@ -51,6 +51,7 @@ import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColum
 import fr.paris.lutece.portal.service.daemon.Daemon;
 import fr.paris.lutece.portal.service.util.AppLogService;
 import fr.paris.lutece.portal.service.util.AppPropertiesService;
+import jakarta.enterprise.inject.spi.CDI;
 
 /**
  * Daemon which creates the appointments.
@@ -70,7 +71,8 @@ public final class AppointmentImportDaemon extends Daemon
     private static final int DEFAULT_PROCESSING_TIMEOUT = 30;
     private static final String MESSAGE_INTERRUPTED = "module.appointment.importer.error.import.interrupted";
 
-    private final AppointmentServiceImporter _importer = new AppointmentServiceImporter( );
+    // The daemon is built by the core from the plugin descriptor, outside CDI
+    private final AppointmentServiceImporter _importer = CDI.current( ).select( AppointmentServiceImporter.class ).get( );
 
     @Override
     public synchronized void run( )
@@ -82,7 +84,7 @@ public final class AppointmentImportDaemon extends Daemon
         {
             if ( AppointmentImportHome.claimStaleBatch( batch.getIdImportBatch( ), dtStaleBefore, strToken ) )
             {
-                AppLogService.error( "Appointment import: batch=" + batch.getIdImportBatch( ) + " was abandoned while processing, taking it over" );
+                AppLogService.error( "Appointment import: batch={} was abandoned while processing, taking it over", batch.getIdImportBatch( ) );
                 interruptProcessingRows( batch );
                 process( batch );
             }
@@ -137,7 +139,7 @@ public final class AppointmentImportDaemon extends Daemon
         catch( AppointmentImportException e )
         {
             failPendingRows( batch, e.getCode( ), e.getMessage( ) );
-            AppLogService.error( "Appointment import: batch=" + batch.getIdImportBatch( ) + "; code=" + e.getCode( ) + "; " + e.getMessage( ), e );
+            logFailure( e, "batch=" + batch.getIdImportBatch( ) );
             closeBatch( batch, AppointmentImportStatus.COMPLETED_WITH_ERRORS );
             return;
         }
@@ -145,7 +147,7 @@ public final class AppointmentImportDaemon extends Daemon
         {
             String strMessage = StringUtils.defaultIfBlank( e.getMessage( ), e.getClass( ).getSimpleName( ) );
             failPendingRows( batch, AppointmentImportException.SAVE_FAILED, strMessage );
-            AppLogService.error( "Appointment import: batch=" + batch.getIdImportBatch( ) + "; unexpected error; " + strMessage, e );
+            AppLogService.error( "Appointment import: batch={}; unexpected error; {}", batch.getIdImportBatch( ), strMessage, e );
             closeBatch( batch, AppointmentImportStatus.COMPLETED_WITH_ERRORS );
             return;
         }
@@ -189,15 +191,34 @@ public final class AppointmentImportDaemon extends Daemon
         catch( AppointmentImportException e )
         {
             AppointmentImportHome.markAppointmentError( row.getIdImportAppointment( ), e.getCode( ), e.getMessage( ) );
-            AppLogService.error( "Appointment import: batch=" + batch.getIdImportBatch( ) + "; line=" + row.getSourceLineNumber( ) + "; code=" + e.getCode( )
-                    + "; " + e.getMessage( ), e );
+            logFailure( e, "batch=" + batch.getIdImportBatch( ) + "; line=" + row.getSourceLineNumber( ) );
         }
         catch( RuntimeException e )
         {
             String strMessage = StringUtils.defaultIfBlank( e.getMessage( ), e.getClass( ).getSimpleName( ) );
             AppointmentImportHome.markAppointmentError( row.getIdImportAppointment( ), AppointmentImportException.SAVE_FAILED, strMessage );
-            AppLogService.error( "Appointment import: batch=" + batch.getIdImportBatch( ) + "; line=" + row.getSourceLineNumber( ) + "; unexpected error; "
-                    + strMessage, e );
+            AppLogService.error( "Appointment import: batch={}; line={}; unexpected error; {}", batch.getIdImportBatch( ), row.getSourceLineNumber( ),
+                    strMessage, e );
+        }
+    }
+
+    /**
+     * Logs why a batch or a row could not be created. A slot closed, full, missing or not aligned, or a form deactivated, is an outcome of the import,
+     * kept in the row and in the reports: it is logged as an information, so that an import on a closed day does not fill the error log with one stack
+     * trace per row. A failure of the save itself is an error, logged with its cause.
+     *
+     * @param e          the failure
+     * @param strContext the batch, and the line if any
+     */
+    private static void logFailure( AppointmentImportException e, String strContext )
+    {
+        if ( AppointmentImportException.SAVE_FAILED.equals( e.getCode( ) ) )
+        {
+            AppLogService.error( "Appointment import: {}; code={}; {}", strContext, e.getCode( ), e.getMessage( ), e );
+        }
+        else
+        {
+            AppLogService.info( "Appointment import: {}; code={}; {}", strContext, e.getCode( ), e.getMessage( ) );
         }
     }
 

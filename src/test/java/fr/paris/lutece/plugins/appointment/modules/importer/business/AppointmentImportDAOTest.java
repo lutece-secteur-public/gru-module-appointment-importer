@@ -33,10 +33,10 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -45,16 +45,17 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import fr.paris.lutece.test.LuteceTestCase;
 
 import fr.paris.lutece.portal.service.plugin.PluginService;
-import fr.paris.lutece.plugins.appointment.modules.importer.AbstractLuteceIntegrationTest;
 import fr.paris.lutece.util.sql.DAOUtil;
 
 /**
  * Tests the SQL of the module on the database of the tests.
  */
-public class AppointmentImportDAOTest extends AbstractLuteceIntegrationTest
+public class AppointmentImportDAOTest extends LuteceTestCase
 {
     private static final int FORM_ID = 9001;
     private static final LocalDateTime SLOT_START = LocalDateTime.of( 2030, 3, 4, 10, 0 );

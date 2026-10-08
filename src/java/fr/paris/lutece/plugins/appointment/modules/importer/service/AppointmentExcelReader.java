@@ -42,9 +42,9 @@ import javax.xml.parsers.ParserConfigurationException;
 
 import org.apache.poi.UnsupportedFileFormatException;
 import org.apache.poi.ooxml.POIXMLException;
-import org.apache.poi.ooxml.util.SAXHelper;
 import org.apache.poi.openxml4j.exceptions.OpenXML4JException;
 import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.util.XMLHelper;
 import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
 import org.apache.poi.xssf.eventusermodel.XSSFReader;
 import org.apache.poi.xssf.eventusermodel.XSSFSheetXMLHandler;
@@ -54,11 +54,13 @@ import org.xml.sax.XMLReader;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentExcelValidationResult;
 import fr.paris.lutece.portal.service.util.AppLogService;
+import jakarta.enterprise.context.ApplicationScoped;
 
 /**
  * Reads and fully validates the first sheet of an XLSX file before it is persisted.
  */
-public final class AppointmentExcelReader
+@ApplicationScoped
+public class AppointmentExcelReader
 {
     /**
      * Reads and validates a workbook.
@@ -82,7 +84,7 @@ public final class AppointmentExcelReader
             {
                 try ( InputStream sheet = iterSheets.next( ) )
                 {
-                    XMLReader xmlParser = SAXHelper.newXMLReader( );
+                    XMLReader xmlParser = XMLHelper.newXMLReader( );
                     xmlParser.setContentHandler( new XSSFSheetXMLHandler( xssfReader.getStylesTable( ), new ReadOnlySharedStringsTable( opcPackage ),
                             sheetReader, sheetReader.getFormatter( ), false ) );
                     xmlParser.parse( new InputSource( sheet ) );
@@ -91,7 +93,7 @@ public final class AppointmentExcelReader
         }
         catch( IOException | OpenXML4JException | SAXException | ParserConfigurationException | UnsupportedFileFormatException | POIXMLException e )
         {
-            AppLogService.debug( "Appointment import: unreadable workbook - " + e.getMessage( ) );
+            AppLogService.debug( "Appointment import: unreadable workbook - {}", e.getMessage( ) );
 
             return sheetReader.unreadable( );
         }

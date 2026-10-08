@@ -33,11 +33,15 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
+import java.io.Serializable;
+
 /**
  * Describes one user-facing workbook validation error.
  */
-public final class AppointmentValidationError
+public final class AppointmentValidationError implements Serializable
 {
+    private static final long serialVersionUID = 1L;
+
     private final Integer _lineNumber;
     private final String _field;
     private final String _message;

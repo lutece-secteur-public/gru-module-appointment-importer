@@ -42,7 +42,7 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import org.apache.commons.lang3.StringEscapeUtils;
+import org.apache.commons.text.StringEscapeUtils;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentValidationError;
