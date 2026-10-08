@@ -17,7 +17,10 @@ Lutece module that imports appointments from an Excel file.
 ## Rights
 
 The feature requires the right `APPOINTMENT_IMPORT`. On each form, the RBAC permission `CREATE_APPOINTMENT` is required to import a file,
-and `VIEW_APPOINTMENT` to see the results and download the reports.
+retry and correct rows, and `VIEW_APPOINTMENT` to see the results and download the reports.
+
+A file can only be imported into an active form. The imports of a form stay visible once it is deactivated: results, reports, retries and
+corrections remain available (a retry fails with `FORM_INACTIVE` until the form is reactivated).
 
 ## Excel file format
 
@@ -45,7 +48,8 @@ Any additional column must match a generic-attribute field of the selected form,
 - Mandatory fields of the form must be filled; a field with choices only accepts the title or the value of one of its choices
   (check boxes accept several, separated by `;`); a text field whose title or code contains `email`, `mail` or `courriel` only accepts
   a valid email (`appointment-importer.emailFieldPattern`).
-- Email must match the pattern configured in Lutece.
+- Email is checked as in the back office (`AdminUserService.checkEmail`): the pattern set by hand or the selected regular expressions,
+  and the banned domains.
 - Phone number must have 10 digits and start with 0; the leading zero lost by a numeric Excel cell is restored.
 - Last and first names must not exceed 100 characters.
 - Dates are native Excel dates or `dd/mm/yyyy`, times native Excel times or `HH:mm`.
@@ -54,7 +58,9 @@ Any additional column must match a generic-attribute field of the selected form,
 - Duplicate files (same SHA-256 hash on the same form) are rejected.
 - A file has at most 20 000 rows (configurable).
 
-Import does not start if any validation error is detected. All errors are reported at once.
+Import does not start if any validation error is detected. All errors are reported at once, with one exception: the values of the form
+fields are only checked once the columns of the file match the fields of the form, since a missing column would put every row in error.
+An unreadable workbook, or one without a header row, is only reported as such.
 
 The slots are checked when the appointments are created. A row in error says why: no slot on that day (`SLOT_NOT_FOUND`), outside
 the opening hours (`SLOT_NOT_FOUND`), times not on the limits of the slots (`SLOT_NOT_ALIGNED`, with the duration of the slots),
@@ -69,6 +75,9 @@ A batch left with pending rows (a row retried while the daemon was processing it
 are all done (two instances closed its last batches at the same time) is closed by the next run of the daemon.
 
 A row put in error as `INTERRUPTED` is never retried with the others: it can only be retried on its own, once checked by hand.
+
+The appointment plugin notifies its listeners (indexing, notifications...) after it has committed the appointment. If a listener fails, the
+appointment exists: the row is counted as created, with its reference, and the failure is logged, so that a retry never creates it twice.
 
 ## Tests
 
