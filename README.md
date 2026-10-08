@@ -2,6 +2,8 @@
 
 Lutece module that imports appointments from an Excel file.
 
+This branch targets **Lutece 8** (lutece-core 8, plugin-appointment 4, JDK 17). The Lutece 7 version is maintained on `develop_core7`.
+
 ## How it works
 
 1. A .xlsx file can be uploaded to import appointments into an appointment form.
@@ -11,7 +13,7 @@ Lutece module that imports appointments from an Excel file.
 5. Results are available in the administration interface: the latest imports are listed with their number of rows created and in error, and
    the final report gives, for each row, its outcome, the person and the reference of the created appointment.
 6. The rows in error can be retried once the cause is fixed (a slot opened, the form reactivated), for a whole file, a batch or a single row,
-   and the values of a row can be corrected before it is retried.
+   and the values of a row can be corrected before it is retried. A retry of a file or of a row asks for a confirmation first.
 7. The daemon `AppointmentImportPurgeDaemon` removes the personal data of the imports older than the retention period and keeps them archived.
 
 ## Rights
@@ -79,13 +81,35 @@ A row put in error as `INTERRUPTED` is never retried with the others: it can onl
 The appointment plugin notifies its listeners (indexing, notifications...) after it has committed the appointment. If a listener fails, the
 appointment exists: the row is counted as created, with its reference, and the failure is logged, so that a retry never creates it twice.
 
+An expected outcome of a row (slot not found, not aligned, closed or full, form deactivated) is kept in the row and in the reports, and only
+logged as an information; a failure of the save itself is logged as an error.
+
+## Installation
+
+The daemons only run once the plugins `appointment` and `appointment-importer` are installed (back office, plugins management).
+Installing a plugin rebuilds its admin rights: give `APPOINTMENT_IMPORT` back to the administrators who use the import.
+
+The download links (validation report, final report, rows not imported) go through `DownloadAppointmentImport.jsp`, which writes
+nothing but the workbook.
+
 ## Tests
 
-The unit tests run with `mvn test`. The integration tests (DAO, daemon on a real appointment form) need Lutece started on a database:
+The tests need Lutece started on a database (DAO, daemon on a real appointment form):
 
 ```bash
 mvn clean lutece:exploded antrun:run -Dlutece-test-hsql test
 ```
 
-They are JUnit 4 tests extending `AbstractLuteceIntegrationTest`, which starts Lutece through `LuteceTestCase` of
-`library-lutece-unit-testing`.
+They are JUnit 5 tests; the integration tests extend `LuteceTestCase` of `library-lutece-unit-testing`, which starts Lutece in Weld.
+The results are in `target/surefire-reports` (the parent pom ignores test failures in the build status).
+
+## Running locally
+
+The module runs alone on Open Liberty, on a MariaDB database built by the antrun of the global pom:
+
+```bash
+mvn clean lutece:exploded antrun:run -Dlutece-test-mariadb -Dlutece-antrun-db-name=<database> "-Dlutece-antrun-db-password="
+mvn clean liberty:dev -DskipTests -DconfigDirectory=<liberty config directory> -Dliberty.var.portal.dbname=<database>
+```
+
+The back office is then on `http://localhost:9080/module-appointment-importer/jsp/admin/AdminLogin.jsp`.
