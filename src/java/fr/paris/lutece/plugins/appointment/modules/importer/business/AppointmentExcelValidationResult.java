@@ -47,13 +47,16 @@ public final class AppointmentExcelValidationResult
     private final List<AppointmentImportRow> _validRows;
     private final List<AppointmentValidationError> _errors;
     private final Set<String> _otherColumnNames;
+    private final boolean _bHeaderRead;
 
-    public AppointmentExcelValidationResult( List<AppointmentImportRow> validRows, List<AppointmentValidationError> errors, Set<String> otherColumnNames )
+    public AppointmentExcelValidationResult( List<AppointmentImportRow> validRows, List<AppointmentValidationError> errors, Set<String> otherColumnNames,
+            boolean bHeaderRead )
     {
         _validRows = List.copyOf( validRows );
         _errors = List.copyOf( errors );
         // Keeps the order of the workbook, so that the errors on the columns follow it
         _otherColumnNames = Collections.unmodifiableSet( new LinkedHashSet<>( otherColumnNames ) );
+        _bHeaderRead = bHeaderRead;
     }
 
     public List<AppointmentImportRow> getValidRows( )
@@ -78,5 +81,13 @@ public final class AppointmentExcelValidationResult
     public Set<String> getOtherColumnNames( )
     {
         return _otherColumnNames;
+    }
+
+    /**
+     * @return true if the header row of the sheet was read; false for an unreadable or empty workbook
+     */
+    public boolean isHeaderRead( )
+    {
+        return _bHeaderRead;
     }
 }

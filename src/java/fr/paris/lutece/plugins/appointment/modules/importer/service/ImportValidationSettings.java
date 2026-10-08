@@ -40,7 +40,6 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumns;
-import fr.paris.lutece.portal.business.user.parameter.DefaultUserParameterHome;
 import fr.paris.lutece.portal.service.admin.AdminUserService;
 import fr.paris.lutece.portal.service.i18n.I18nService;
 import fr.paris.lutece.portal.service.util.AppPropertiesService;
@@ -111,25 +110,11 @@ public final class ImportValidationSettings
     public static ImportValidationSettings fromLutece( Locale locale )
     {
         return new ImportValidationSettings( ImportColumns.fromProperties( ), ( strKey, args ) -> I18nService.getLocalizedString( strKey, args, locale ),
-                buildEmailChecker( ), LocalDateTime.now( ), AppPropertiesService.getPropertyInt( PROPERTY_MAX_ROWS, DEFAULT_MAX_ROWS ),
+                // Emails are checked as the back office does: pattern or regular expressions, and banned domains
+                AdminUserService::checkEmail, LocalDateTime.now( ), AppPropertiesService.getPropertyInt( PROPERTY_MAX_ROWS, DEFAULT_MAX_ROWS ),
                 AppPropertiesService.getPropertyInt( PROPERTY_MAX_NAME_LENGTH, DEFAULT_MAX_NAME_LENGTH ),
                 AppPropertiesService.getProperty( PROPERTY_PHONE_PATTERN, DEFAULT_PHONE_PATTERN ),
                 AppPropertiesService.getProperty( PROPERTY_EMAIL_FIELD_PATTERN, DEFAULT_EMAIL_FIELD_PATTERN ) );
-    }
-
-    /**
-     * Compiles the email pattern of the back office once, instead of reading and compiling it for each row. Falls back to
-     * {@link AdminUserService#checkEmail} when no pattern is set.
-     */
-    private static Predicate<String> buildEmailChecker( )
-    {
-        String strPattern = DefaultUserParameterHome.findByKey( AdminUserService.DSKEY_EMAIL_PATTERN );
-        if ( strPattern != null && !strPattern.isEmpty( ) )
-        {
-            Pattern pattern = Pattern.compile( strPattern );
-            return strEmail -> pattern.matcher( strEmail ).matches( );
-        }
-        return AdminUserService::checkEmail;
     }
 
     public ImportColumns getColumns( )

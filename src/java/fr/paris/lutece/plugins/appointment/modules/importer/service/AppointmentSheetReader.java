@@ -204,7 +204,7 @@ final class AppointmentSheetReader implements SheetContentsHandler
         listErrors.addAll( _rowErrors );
         Set<String> otherColumnNames = new LinkedHashSet<>( _otherColumns.values( ) );
 
-        return new AppointmentExcelValidationResult( _validRows, listErrors, otherColumnNames );
+        return new AppointmentExcelValidationResult( _validRows, listErrors, otherColumnNames, _bHeaderRead );
     }
 
     /**
@@ -217,7 +217,7 @@ final class AppointmentSheetReader implements SheetContentsHandler
         AppointmentValidationError error = AppointmentValidationError.workbook( _settings.message( MESSAGE_FIELD_WORKBOOK ),
                 _settings.message( ERROR_WORKBOOK_UNREADABLE ) );
 
-        return new AppointmentExcelValidationResult( List.of( ), List.of( error ), Set.of( ) );
+        return new AppointmentExcelValidationResult( List.of( ), List.of( error ), Set.of( ), false );
     }
 
     /**

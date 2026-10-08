@@ -219,9 +219,9 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             _validationErrors = new ArrayList<>( );
             _validationReportFileId = null;
         }
-        // Importing creates appointments; the results show the people imported
-        ReferenceList forms = getAuthorizedActiveForms( AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT );
-        ReferenceList resultForms = getAuthorizedActiveForms( AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT );
+        // Importing creates appointments, only in an active form; the results show the people imported, even once the form is deactivated
+        ReferenceList forms = getAuthorizedForms( AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT, true );
+        ReferenceList resultForms = getAuthorizedForms( AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT, false );
         String strTab = "results".equals( request.getParameter( PARAMETER_TAB ) ) ? "results" : "import";
         Map<Integer, String> mapFormTitles = new HashMap<>( );
         List<Integer> listAuthorizedFormIds = resultForms.stream( )
@@ -362,7 +362,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
             addError( MESSAGE_INVALID_TOKEN, getLocale( ) );
             return redirectView( request, VIEW_MANAGE_IMPORT );
         }
-        if ( !isAuthorizedForm( _selectedFormId, AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT ) )
+        if ( !isAuthorizedForm( _selectedFormId, AppointmentResourceIdService.PERMISSION_CREATE_APPOINTMENT, true ) )
         {
             _validationErrors.add( AppointmentValidationError.workbook( message( KEY_FORM ), message( KEY_ERROR_FORM_UNAUTHORIZED ) ) );
             return getManageAppointmentImport( request );
@@ -436,7 +436,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         {
             return getManageAppointmentImport( request );
         }
-        getAuthorizedActiveForms( AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT ).stream( )
+        getAuthorizedForms( AppointmentResourceIdService.PERMISSION_VIEW_APPOINTMENT, false ).stream( )
                 .filter( item -> Integer.toString( batch.getIdForm( ) ).equals( item.getCode( ) ) )
                 .findFirst( )
                 .ifPresent( item -> batch.setFormTitle( item.getName( ) ) );
@@ -866,7 +866,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     }
 
     /**
-     * Returns true if the given form id is a valid integer and belongs to the current user's authorized forms.
+     * Returns true if the given form id is a valid integer and belongs to the current user's authorized forms, active or not.
      *
      * @param strFormId     the form id as a string
      * @param strPermission the RBAC permission required on the form
@@ -874,10 +874,23 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
      */
     private boolean isAuthorizedForm( String strFormId, String strPermission )
     {
+        return isAuthorizedForm( strFormId, strPermission, false );
+    }
+
+    /**
+     * Returns true if the given form id is a valid integer and belongs to the current user's authorized forms.
+     *
+     * @param strFormId     the form id as a string
+     * @param strPermission the RBAC permission required on the form
+     * @param bActiveOnly   true if the form must be active
+     * @return true if authorized, false otherwise
+     */
+    private boolean isAuthorizedForm( String strFormId, String strPermission, boolean bActiveOnly )
+    {
         try
         {
             int nId = Integer.parseInt( strFormId );
-            return getAuthorizedActiveForms( strPermission ).stream( ).anyMatch( item -> Integer.toString( nId ).equals( item.getCode( ) ) );
+            return getAuthorizedForms( strPermission, bActiveOnly ).stream( ).anyMatch( item -> Integer.toString( nId ).equals( item.getCode( ) ) );
         }
         catch( NumberFormatException e )
         {
@@ -886,14 +899,15 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
     }
 
     /**
-     * Returns the active appointment forms accessible to the current admin user,
+     * Returns the appointment forms accessible to the current admin user,
      * filtered by workgroup and by the given RBAC permission.
      * The first item is always an empty placeholder used to display "no form selected".
      *
      * @param strPermission the RBAC permission required on the forms
+     * @param bActiveOnly   true to keep only the active forms
      * @return the forms
      */
-    private ReferenceList getAuthorizedActiveForms( String strPermission )
+    private ReferenceList getAuthorizedForms( String strPermission, boolean bActiveOnly )
     {
         List<Form> listForms = new ArrayList<>( AdminWorkgroupService.getAuthorizedCollection( FormService.findAllForms( ), getUser( ) ) );
         listForms = new ArrayList<>( RBACService.getAuthorizedCollection( listForms, strPermission, getUser( ) ) );
@@ -901,7 +915,7 @@ public class AppointmentImportJspBean extends MVCAdminJspBean
         listResult.addItem( StringUtils.EMPTY, StringUtils.EMPTY );
         for ( Form form : listForms )
         {
-            if ( form.getIsActive( ) )
+            if ( !bActiveOnly || form.getIsActive( ) )
             {
                 listResult.addItem( form.getIdForm( ), form.getTitle( ) );
             }

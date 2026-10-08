@@ -106,8 +106,14 @@ public final class AppointmentImportService
         AppointmentExcelValidationResult validation = _reader.read( sourceFile, settings );
         List<AppointmentValidationError> listErrors = new ArrayList<>( validation.getErrors( ) );
         AppointmentFormEntries formEntries = AppointmentFormEntries.load( nFormId, settings.getColumns( ) );
-        listErrors.addAll( formEntries.validateColumns( validation.getOtherColumnNames( ), settings ) );
-        if ( listErrors.isEmpty( ) )
+        // Without a header there are no columns to compare with the form
+        List<AppointmentValidationError> listColumnErrors = validation.isHeaderRead( )
+                ? formEntries.validateColumns( validation.getOtherColumnNames( ), settings )
+                : List.of( );
+        listErrors.addAll( listColumnErrors );
+        // The rows are checked against the form whatever the other errors, so that all of them are reported at once, but only once the
+        // columns match: a missing column would put every row in error
+        if ( listColumnErrors.isEmpty( ) )
         {
             for ( AppointmentImportRow row : validation.getValidRows( ) )
             {
