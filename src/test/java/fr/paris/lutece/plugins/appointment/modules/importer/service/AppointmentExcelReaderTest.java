@@ -182,6 +182,22 @@ public class AppointmentExcelReaderTest
     }
 
     @Test
+    public void testUnreadableWorkbookHasNoHeader( )
+    {
+        AppointmentExcelValidationResult result = _reader.read( "not a workbook".getBytes( java.nio.charset.StandardCharsets.UTF_8 ),
+                ImportTestUtils.settings( 1000 ) );
+
+        assertFalse( result.isHeaderRead( ) );
+        assertEquals( 1, result.getErrors( ).size( ) );
+    }
+
+    @Test
+    public void testHeaderIsRead( ) throws IOException
+    {
+        assertTrue( read( ImportTestUtils.HEADERS ).isHeaderRead( ) );
+    }
+
+    @Test
     public void testTooManyRows( ) throws IOException
     {
         AppointmentExcelValidationResult result = _reader.read( ImportTestUtils.workbook( ImportTestUtils.HEADERS,
