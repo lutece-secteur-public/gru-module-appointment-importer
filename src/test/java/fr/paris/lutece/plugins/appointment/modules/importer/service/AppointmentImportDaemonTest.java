@@ -330,6 +330,40 @@ public class AppointmentImportDaemonTest extends AbstractLuteceIntegrationTest
         assertTrue( AppointmentImportRetryService.retryRow( row.getIdImportAppointment( ) ) );
     }
 
+    @Test
+    public void testDuplicatePersonOnSameSlotIsRejected( ) throws IOException
+    {
+        LocalDate day = _monday.plusDays( 12 );
+        AppointmentImportFile fileA = register( "dup-a.xlsx", row( "DUPUIS", "dupuis@paris.fr", day, TEN, ELEVEN ) );
+        new AppointmentImportDaemon( ).run( );
+        assertEquals( AppointmentImportStatus.CREATED, rowsByLine( fileA ).get( 2 ).getStatus( ) );
+
+        AppointmentImportFile fileB = register( "dup-b.xlsx", row( "DUPUIS", "dupuis@paris.fr", day, TEN, ELEVEN ) );
+        new AppointmentImportDaemon( ).run( );
+        assertEquals( AppointmentImportStatus.DUPLICATE_PERSON, rowsByLine( fileB ).get( 2 ).getErrorCode( ) );
+    }
+
+    @Test
+    public void testCancelledAppointmentDoesNotBlockImport( ) throws IOException
+    {
+        LocalDate day = _monday.plusDays( 13 );
+        AppointmentImportFile fileA = register( "cancel-a.xlsx", row( "COLIN", "colin@paris.fr", day, TEN, ELEVEN ) );
+        new AppointmentImportDaemon( ).run( );
+        AppointmentImportAppointment rowA = rowsByLine( fileA ).get( 2 );
+        assertEquals( AppointmentImportStatus.CREATED, rowA.getStatus( ) );
+
+        try ( DAOUtil daoUtil = new DAOUtil( "UPDATE appointment_appointment SET is_cancelled = TRUE WHERE id_appointment = ?",
+                PluginService.getPlugin( "appointment" ) ) )
+        {
+            daoUtil.setInt( 1, rowA.getIdAppointment( ) );
+            daoUtil.executeUpdate( );
+        }
+
+        AppointmentImportFile fileB = register( "cancel-b.xlsx", row( "COLIN", "colin@paris.fr", day, TEN, ELEVEN ) );
+        new AppointmentImportDaemon( ).run( );
+        assertEquals( AppointmentImportStatus.CREATED, rowsByLine( fileB ).get( 2 ).getStatus( ) );
+    }
+
     private AppointmentImportFile register( String strName, Object [ ]... rows ) throws IOException
     {
         byte [ ] content = ImportTestUtils.workbook( HEADERS, rows );

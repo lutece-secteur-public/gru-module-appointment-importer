@@ -48,6 +48,9 @@ public final class AppointmentImportStatus
     public static final String CREATED = "CREATED";
     public static final String ERROR = "ERROR";
 
+    // Appointment-row error codes
+    public static final String DUPLICATE_PERSON = "DUPLICATE_PERSON";
+
     private AppointmentImportStatus( )
     {
     }

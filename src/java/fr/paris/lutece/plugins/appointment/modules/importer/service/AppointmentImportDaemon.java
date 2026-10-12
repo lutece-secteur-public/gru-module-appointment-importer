@@ -46,6 +46,7 @@ import fr.paris.lutece.plugins.appointment.modules.importer.business.Appointment
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.ImportColumns;
 import fr.paris.lutece.portal.service.daemon.Daemon;
@@ -183,6 +184,13 @@ public final class AppointmentImportDaemon extends Daemon
         {
             Map<String, String> mapGeneric = new LinkedHashMap<>( AppointmentImportJsonService.readMap( row.getGenericAttributesJson( ) ) );
             Map<String, String> mapFormFields = AppointmentImportJsonService.readMap( row.getFormFieldsJson( ) );
+            String strEmail = mapGeneric.get( AppointmentImportRow.ATTRIBUTE_EMAIL );
+            if ( strEmail != null && !strEmail.isEmpty( )
+                    && AppointmentImportHome.existsAppointmentForEmailOnSlot( batch.getIdForm( ), batch.getStartingDateTime( ), strEmail ) )
+            {
+                throw new AppointmentImportException( AppointmentImportException.DUPLICATE_PERSON,
+                        "module.appointment.importer.error.import.duplicatePerson" );
+            }
             int nAppointmentId = _importer.importAppointment( batch.getIdForm( ), strAdminAccessCode, mapGeneric, mapFormFields, formEntries, listSlots );
             AppointmentImportHome.markAppointmentCreated( row.getIdImportAppointment( ), nAppointmentId );
         }

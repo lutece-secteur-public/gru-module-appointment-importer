@@ -579,4 +579,17 @@ public final class AppointmentImportHome
     {
         _dao.updateAppointment( nId, AppointmentImportStatus.ERROR, strCode, strMessage, null, _plugin );
     }
+
+    /**
+     * Tells whether an appointment already exists for this person on the given slot.
+     *
+     * @param nFormId the form
+     * @param dtStart the starting date-time of the slot
+     * @param strEmail the email address of the person
+     * @return true if a duplicate appointment exists
+     */
+    public static boolean existsAppointmentForEmailOnSlot( int nFormId, LocalDateTime dtStart, String strEmail )
+    {
+        return _dao.existsAppointmentForEmailOnSlot( nFormId, dtStart, strEmail, _plugin );
+    }
 }

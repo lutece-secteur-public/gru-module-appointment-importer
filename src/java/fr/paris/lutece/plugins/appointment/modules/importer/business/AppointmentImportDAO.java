@@ -133,6 +133,13 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     private static final String SQL_REQUEUE_ROW = "UPDATE appointment_import_appointment SET status = '" + AppointmentImportStatus.PENDING
             + "', error_code = NULL, error_message = NULL, last_exec_date = ? WHERE id_import_appointment = ? AND status = '"
             + AppointmentImportStatus.ERROR + "'";
+    private static final String SQL_EXISTS_APPOINTMENT_FOR_EMAIL_ON_SLOT =
+            "SELECT COUNT(*) FROM appointment_appointment a"
+            + " JOIN appointment_user u ON u.id_user = a.id_user"
+            + " JOIN appointment_appointment_slot aas ON aas.id_appointment = a.id_appointment"
+            + " JOIN appointment_slot s ON s.id_slot = aas.id_slot"
+            + " WHERE s.id_form = ? AND s.starting_date_time = ? AND u.email = ? AND a.is_cancelled = FALSE";
+
     private static final String SQL_REQUEUE_BATCH = "UPDATE appointment_import_batch SET status = '" + AppointmentImportStatus.PENDING
             + "', processing_token = NULL, last_exec_date = ? WHERE id_import_batch = ? AND status IN ('" + AppointmentImportStatus.COMPLETED + "','"
             + AppointmentImportStatus.COMPLETED_WITH_ERRORS + "','" + AppointmentImportStatus.PENDING + "')";
@@ -687,6 +694,19 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
         {
             daoUtil.setInt( 1, nBatchId );
             daoUtil.executeUpdate( );
+        }
+    }
+
+    @Override
+    public boolean existsAppointmentForEmailOnSlot( int nFormId, LocalDateTime dtStart, String strEmail, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_EXISTS_APPOINTMENT_FOR_EMAIL_ON_SLOT, plugin ) )
+        {
+            daoUtil.setInt( 1, nFormId );
+            daoUtil.setTimestamp( 2, Timestamp.valueOf( dtStart ) );
+            daoUtil.setString( 3, strEmail );
+            daoUtil.executeQuery( );
+            return daoUtil.next( ) && daoUtil.getInt( 1 ) > 0;
         }
     }
 

@@ -479,4 +479,15 @@ public interface IAppointmentImportDAO
      *            the plugin
      */
     void deleteAppointmentsByBatch( int nBatchId, Plugin plugin );
+
+    /**
+     * Tells whether an appointment already exists for this person on the given slot.
+     *
+     * @param nFormId the form
+     * @param dtStart the starting date-time of the slot
+     * @param strEmail the email address of the person
+     * @param plugin the plugin
+     * @return true if a duplicate appointment exists
+     */
+    boolean existsAppointmentForEmailOnSlot( int nFormId, LocalDateTime dtStart, String strEmail, Plugin plugin );
 }

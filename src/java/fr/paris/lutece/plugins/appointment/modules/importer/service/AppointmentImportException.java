@@ -35,6 +35,7 @@ package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
 import java.util.Locale;
 
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
 import fr.paris.lutece.portal.service.i18n.I18nService;
 
 /**
@@ -66,6 +67,9 @@ final class AppointmentImportException extends RuntimeException
 
     /** The processing of the row was interrupted: the appointment may or may not have been created. */
     static final String INTERRUPTED = "INTERRUPTED";
+
+    /** An appointment already exists for this person on the same slot. */
+    static final String DUPLICATE_PERSON = AppointmentImportStatus.DUPLICATE_PERSON;
 
     private final String _strCode;
     private final String _strMessageKey;
