@@ -33,12 +33,14 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
+import java.sql.Date;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -111,7 +113,8 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     private static final String SQL_FILTER_STATUS = " AND status = ?";
     private static final String SQL_ORDER_BY_LINE = " ORDER BY source_line_number";
     private static final String SQL_COUNT_APPOINTMENTS_BY_BATCH = "SELECT COUNT(*) FROM appointment_import_appointment WHERE id_import_batch = ?";
-    private static final String SQL_FILTER_PROCESSED = " AND status IN ('CREATED','ERROR')";
+    private static final String SQL_FILTER_PROCESSED = " AND status IN ('" + AppointmentImportStatus.CREATED + "','" + AppointmentImportStatus.ERROR + "','"
+            + AppointmentImportStatus.REPLACED + "')";
     private static final String SQL_UPDATE_APPOINTMENT = "UPDATE appointment_import_appointment"
             + " SET status = ?, error_code = ?, error_message = ?, id_appointment = ?, last_exec_date = ? WHERE id_import_appointment = ?";
     private static final String SQL_DELETE_APPOINTMENTS_BY_BATCH = "DELETE FROM appointment_import_appointment WHERE id_import_batch = ?";
@@ -129,6 +132,37 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
     // A file whose batches are all done but which is still pending: the instance that closed its last batch missed it
     private static final String SQL_SELECT_FILE_IDS_TO_CLOSE = "SELECT f.id_import_file FROM appointment_import_file f WHERE f.status = 'PENDING' AND EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file )"
             + " AND NOT EXISTS ( SELECT b.id_import_batch FROM appointment_import_batch b WHERE b.id_import_file = f.id_import_file AND b.status IN ('PENDING','PROCESSING') )";
+
+    private static final String SQL_SELECT_APPOINTMENT_IDS_BY_FILE = "SELECT a.source_line_number, a.id_import_appointment FROM appointment_import_appointment a"
+            + " JOIN appointment_import_batch b ON b.id_import_batch = a.id_import_batch WHERE b.id_import_file = ?";
+    private static final String SQL_REPLACE_APPOINTMENT = "UPDATE appointment_import_appointment SET status = '" + AppointmentImportStatus.REPLACED
+            + "', error_code = NULL, error_message = ?, last_exec_date = ? WHERE id_import_appointment = ? AND status = '" + AppointmentImportStatus.ERROR
+            + "' AND ( error_code IS NULL OR error_code <> ? )";
+    private static final String SQL_COMPLETE_BATCH_WITHOUT_ERRORS = "UPDATE appointment_import_batch SET status = '" + AppointmentImportStatus.COMPLETED
+            + "', last_exec_date = ? WHERE id_import_batch = ? AND status = '" + AppointmentImportStatus.COMPLETED_WITH_ERRORS
+            + "' AND NOT EXISTS ( SELECT a.id_import_appointment FROM appointment_import_appointment a WHERE a.id_import_batch = ? AND a.status = '"
+            + AppointmentImportStatus.ERROR + "' )";
+    private static final String SQL_COMPLETE_FILE_WITHOUT_ERRORS = "UPDATE appointment_import_file SET status = '" + AppointmentImportStatus.COMPLETED
+            + "', last_exec_date = ? WHERE id_import_file = ? AND status = '" + AppointmentImportStatus.COMPLETED_WITH_ERRORS
+            + "' AND NOT EXISTS ( SELECT a.id_import_appointment FROM appointment_import_appointment a JOIN appointment_import_batch b"
+            + " ON b.id_import_batch = a.id_import_batch WHERE b.id_import_file = ? AND a.status = '" + AppointmentImportStatus.ERROR + "' )";
+
+    private static final String SQL_SELECT_FINGERPRINTS = "SELECT fp.id_form, fp.fingerprint, fp.id_import_file, fp.id_import_appointment,"
+            + " fp.source_line_number, fp.appointment_date, fp.creation_date, f.import_file_name, a.status, a.error_code FROM appointment_import_fingerprint fp"
+            + " LEFT JOIN appointment_import_file f ON f.id_import_file = fp.id_import_file"
+            + " LEFT JOIN appointment_import_appointment a ON a.id_import_appointment = fp.id_import_appointment WHERE fp.id_form = ? AND fp.fingerprint IN (";
+    private static final String SQL_INSERT_FINGERPRINT = "INSERT INTO appointment_import_fingerprint"
+            + " (id_form, fingerprint, id_import_file, id_import_appointment, source_line_number, appointment_date, creation_date) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    private static final String SQL_REASSIGN_FINGERPRINT = "UPDATE appointment_import_fingerprint SET id_import_file = ?, id_import_appointment = ?,"
+            + " source_line_number = ?, appointment_date = ?, creation_date = ? WHERE id_form = ? AND fingerprint = ? AND id_import_appointment = ?";
+    private static final String SQL_SELECT_FINGERPRINT_ROW = "SELECT id_import_appointment FROM appointment_import_fingerprint WHERE id_form = ? AND fingerprint = ?";
+    private static final String SQL_DELETE_FINGERPRINT_BY_APPOINTMENT = "DELETE FROM appointment_import_fingerprint WHERE id_import_appointment = ?";
+    private static final String SQL_DELETE_FINGERPRINTS_NOT_CREATED_BY_BATCH = "DELETE FROM appointment_import_fingerprint WHERE id_import_appointment IN"
+            + " ( SELECT a.id_import_appointment FROM appointment_import_appointment a WHERE a.id_import_batch = ? AND a.status <> '"
+            + AppointmentImportStatus.CREATED + "' )";
+    private static final String SQL_DELETE_FINGERPRINTS_BEFORE = "DELETE FROM appointment_import_fingerprint WHERE appointment_date < ?";
+    // Keeps the IN clauses of the lookups short
+    private static final int FINGERPRINTS_PER_QUERY = 500;
 
     private static final String SQL_AND_FILE_NAME = " AND import_file_name = ?";
     private static final String SQL_AND_STATUS = " AND status = ?";
@@ -673,7 +707,170 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
         }
     }
 
+    @Override
+    public Map<Integer, Integer> selectAppointmentIdsByFile( int nFileId, Plugin plugin )
+    {
+        Map<Integer, Integer> mapIds = new HashMap<>( );
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_SELECT_APPOINTMENT_IDS_BY_FILE, plugin ) )
+        {
+            daoUtil.setInt( 1, nFileId );
+            daoUtil.executeQuery( );
+            while ( daoUtil.next( ) )
+            {
+                mapIds.put( daoUtil.getInt( 1 ), daoUtil.getInt( 2 ) );
+            }
+        }
+        return mapIds;
+    }
+
+    @Override
+    public boolean replaceAppointment( int nId, String strExcludedErrorCode, String strMessage, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_REPLACE_APPOINTMENT, plugin ) )
+        {
+            daoUtil.setString( 1, strMessage );
+            daoUtil.setTimestamp( 2, Timestamp.valueOf( LocalDateTime.now( ) ) );
+            daoUtil.setInt( 3, nId );
+            daoUtil.setString( 4, strExcludedErrorCode );
+            daoUtil.executeUpdate( );
+        }
+        AppointmentImportAppointment appointment = loadAppointment( nId, plugin );
+        return appointment != null && AppointmentImportStatus.REPLACED.equals( appointment.getStatus( ) );
+    }
+
+    @Override
+    public void completeBatchWithoutErrors( int nBatchId, Plugin plugin )
+    {
+        completeWithoutErrors( SQL_COMPLETE_BATCH_WITHOUT_ERRORS, nBatchId, plugin );
+    }
+
+    @Override
+    public void completeFileWithoutErrors( int nFileId, Plugin plugin )
+    {
+        completeWithoutErrors( SQL_COMPLETE_FILE_WITHOUT_ERRORS, nFileId, plugin );
+    }
+
+    // Fingerprints
+
+    @Override
+    public List<AppointmentImportFingerprint> selectFingerprints( int nFormId, Collection<String> collectionFingerprints, Plugin plugin )
+    {
+        List<AppointmentImportFingerprint> listResult = new ArrayList<>( );
+        List<String> listFingerprints = new ArrayList<>( collectionFingerprints );
+        for ( int nStart = 0; nStart < listFingerprints.size( ); nStart += FINGERPRINTS_PER_QUERY )
+        {
+            List<String> listPart = listFingerprints.subList( nStart, Math.min( nStart + FINGERPRINTS_PER_QUERY, listFingerprints.size( ) ) );
+            try ( DAOUtil daoUtil = new DAOUtil( SQL_SELECT_FINGERPRINTS + placeholders( listPart.size( ) ) + ")", plugin ) )
+            {
+                int nIndex = 1;
+                daoUtil.setInt( nIndex++, nFormId );
+                for ( String strFingerprint : listPart )
+                {
+                    daoUtil.setString( nIndex++, strFingerprint );
+                }
+                daoUtil.executeQuery( );
+                while ( daoUtil.next( ) )
+                {
+                    listResult.add( mapFingerprint( daoUtil ) );
+                }
+            }
+        }
+        return listResult;
+    }
+
+    @Override
+    public void insertFingerprints( List<AppointmentImportFingerprint> listFingerprints, Plugin plugin )
+    {
+        if ( listFingerprints.isEmpty( ) )
+        {
+            return;
+        }
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_INSERT_FINGERPRINT, plugin ) )
+        {
+            for ( AppointmentImportFingerprint fingerprint : listFingerprints )
+            {
+                int nIndex = 1;
+                daoUtil.setInt( nIndex++, fingerprint.getIdForm( ) );
+                daoUtil.setString( nIndex++, fingerprint.getFingerprint( ) );
+                daoUtil.setInt( nIndex++, fingerprint.getIdImportFile( ) );
+                daoUtil.setInt( nIndex++, fingerprint.getIdImportAppointment( ) );
+                daoUtil.setInt( nIndex++, fingerprint.getSourceLineNumber( ) );
+                daoUtil.setDate( nIndex++, Date.valueOf( fingerprint.getAppointmentDate( ) ) );
+                setTimestampOrNull( daoUtil, nIndex, fingerprint.getCreationDate( ) );
+                daoUtil.addBatch( );
+            }
+            daoUtil.executeBatch( );
+        }
+    }
+
+    @Override
+    public boolean reassignFingerprint( AppointmentImportFingerprint fingerprint, int nFromAppointmentId, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_REASSIGN_FINGERPRINT, plugin ) )
+        {
+            int nIndex = 1;
+            daoUtil.setInt( nIndex++, fingerprint.getIdImportFile( ) );
+            daoUtil.setInt( nIndex++, fingerprint.getIdImportAppointment( ) );
+            daoUtil.setInt( nIndex++, fingerprint.getSourceLineNumber( ) );
+            daoUtil.setDate( nIndex++, Date.valueOf( fingerprint.getAppointmentDate( ) ) );
+            setTimestampOrNull( daoUtil, nIndex++, fingerprint.getCreationDate( ) );
+            daoUtil.setInt( nIndex++, fingerprint.getIdForm( ) );
+            daoUtil.setString( nIndex++, fingerprint.getFingerprint( ) );
+            daoUtil.setInt( nIndex, nFromAppointmentId );
+            daoUtil.executeUpdate( );
+        }
+        // The UPDATE only matches while the fingerprint is still the old row's: whoever's row is stored owns the line
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_SELECT_FINGERPRINT_ROW, plugin ) )
+        {
+            daoUtil.setInt( 1, fingerprint.getIdForm( ) );
+            daoUtil.setString( 2, fingerprint.getFingerprint( ) );
+            daoUtil.executeQuery( );
+            return daoUtil.next( ) && daoUtil.getInt( 1 ) == fingerprint.getIdImportAppointment( );
+        }
+    }
+
+    @Override
+    public void deleteFingerprintByAppointment( int nAppointmentId, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_DELETE_FINGERPRINT_BY_APPOINTMENT, plugin ) )
+        {
+            daoUtil.setInt( 1, nAppointmentId );
+            daoUtil.executeUpdate( );
+        }
+    }
+
+    @Override
+    public void deleteFingerprintsNotCreatedByBatch( int nBatchId, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_DELETE_FINGERPRINTS_NOT_CREATED_BY_BATCH, plugin ) )
+        {
+            daoUtil.setInt( 1, nBatchId );
+            daoUtil.executeUpdate( );
+        }
+    }
+
+    @Override
+    public void deleteFingerprintsBefore( LocalDate dateBefore, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( SQL_DELETE_FINGERPRINTS_BEFORE, plugin ) )
+        {
+            daoUtil.setDate( 1, Date.valueOf( dateBefore ) );
+            daoUtil.executeUpdate( );
+        }
+    }
+
     // Helpers
+
+    private static void completeWithoutErrors( String strSql, int nId, Plugin plugin )
+    {
+        try ( DAOUtil daoUtil = new DAOUtil( strSql, plugin ) )
+        {
+            daoUtil.setTimestamp( 1, Timestamp.valueOf( LocalDateTime.now( ) ) );
+            daoUtil.setInt( 2, nId );
+            daoUtil.setInt( 3, nId );
+            daoUtil.executeUpdate( );
+        }
+    }
 
     private static void updateStatus( String strSql, int nId, String strStatus, Plugin plugin )
     {
@@ -863,5 +1060,23 @@ public final class AppointmentImportDAO implements IAppointmentImportDAO
         appointment.setCreationDate( toLocalDateTime( daoUtil.getTimestamp( nIndex++ ) ) );
         appointment.setLastExecDate( toLocalDateTime( daoUtil.getTimestamp( nIndex ) ) );
         return appointment;
+    }
+
+    private static AppointmentImportFingerprint mapFingerprint( DAOUtil daoUtil )
+    {
+        int nIndex = 1;
+        AppointmentImportFingerprint fingerprint = new AppointmentImportFingerprint( );
+        fingerprint.setIdForm( daoUtil.getInt( nIndex++ ) );
+        fingerprint.setFingerprint( daoUtil.getString( nIndex++ ) );
+        fingerprint.setIdImportFile( daoUtil.getInt( nIndex++ ) );
+        fingerprint.setIdImportAppointment( daoUtil.getInt( nIndex++ ) );
+        fingerprint.setSourceLineNumber( daoUtil.getInt( nIndex++ ) );
+        Date appointmentDate = daoUtil.getDate( nIndex++ );
+        fingerprint.setAppointmentDate( appointmentDate == null ? null : appointmentDate.toLocalDate( ) );
+        fingerprint.setCreationDate( toLocalDateTime( daoUtil.getTimestamp( nIndex++ ) ) );
+        fingerprint.setImportFileName( daoUtil.getString( nIndex++ ) );
+        fingerprint.setRowStatus( daoUtil.getString( nIndex++ ) );
+        fingerprint.setRowErrorCode( daoUtil.getString( nIndex ) );
+        return fingerprint;
     }
 }

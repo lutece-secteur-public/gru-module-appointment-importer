@@ -47,6 +47,8 @@ public final class AppointmentImportStatus
     // Appointment-row statuses (a row is PENDING, then PROCESSING while its appointment is saved)
     public static final String CREATED = "CREATED";
     public static final String ERROR = "ERROR";
+    /** A row in error whose line was imported again by a later file: it is never retried */
+    public static final String REPLACED = "REPLACED";
 
     private AppointmentImportStatus( )
     {

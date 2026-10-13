@@ -34,6 +34,7 @@
 package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
@@ -46,6 +47,7 @@ import java.util.Map;
 
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFingerprint;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
@@ -71,6 +73,8 @@ public final class AppointmentImportRetryService
     public static final String INTERRUPTED = AppointmentImportException.INTERRUPTED;
 
     private static final String ERROR_RETRY_REFUSED = "module.appointment.importer.error.retryRefused";
+    private static final String ERROR_ROW_ALREADY_IMPORTED = "module.appointment.importer.error.row.alreadyImported";
+    private static final String MESSAGE_FIELD_LINE = "module.appointment.importer.line";
     private static final String ERROR_VALUE_REQUIRED = "module.appointment.importer.error.value.required";
     private static final String ERROR_VALUE_TOO_LONG = "module.appointment.importer.error.value.tooLong";
     private static final String ERROR_VALUE_EMAIL = "module.appointment.importer.error.value.email";
@@ -242,13 +246,85 @@ public final class AppointmentImportRetryService
         AppointmentImportAppointment row = AppointmentImportHome.findAppointment( nRowId );
         Map<String, String> mapGeneric = new LinkedHashMap<>( mapGenericAttributes );
         List<AppointmentValidationError> listErrors = validate( row.getSourceLineNumber( ), mapGeneric, mapFormFields, settings, formEntries );
+        if ( !listErrors.isEmpty( ) )
+        {
+            return listErrors;
+        }
+        AppointmentImportBatch batch = AppointmentImportHome.findBatch( row.getIdImportBatch( ) );
+        AppointmentImportFingerprint fingerprint = fingerprint( row, batch, mapGeneric, mapFormFields );
+        AppointmentValidationError duplicate = checkImportedLine( row, fingerprint, settings );
+        if ( duplicate != null )
+        {
+            listErrors.add( duplicate );
+            return listErrors;
+        }
         // The correction is kept only with its retry: a row corrected but left in error would look done
-        if ( listErrors.isEmpty( ) && !retryRow( nRowId, ( ) -> AppointmentImportHome.updateAppointmentData( nRowId,
-                AppointmentImportJsonService.writeMap( mapGeneric ), AppointmentImportJsonService.writeMap( mapFormFields ) ) ) )
+        if ( !retryRow( nRowId, ( ) -> {
+            AppointmentImportHome.updateAppointmentData( nRowId, AppointmentImportJsonService.writeMap( mapGeneric ),
+                    AppointmentImportJsonService.writeMap( mapFormFields ) );
+            AppointmentImportHome.removeFingerprintByAppointment( nRowId );
+            AppointmentImportHome.createFingerprints( List.of( fingerprint ) );
+        } ) )
         {
             listErrors.add( AppointmentValidationError.workbook( "", settings.message( ERROR_RETRY_REFUSED ) ) );
         }
         return listErrors;
+    }
+
+    /**
+     * Builds the fingerprint of a row with its corrected values. Its slot is the slot of its batch.
+     *
+     * @param row
+     *            the row
+     * @param batch
+     *            the batch of the row
+     * @param mapGeneric
+     *            the corrected values of the standard columns, normalized
+     * @param mapFormFields
+     *            the corrected values of the form fields
+     * @return the fingerprint
+     */
+    private static AppointmentImportFingerprint fingerprint( AppointmentImportAppointment row, AppointmentImportBatch batch, Map<String, String> mapGeneric,
+            Map<String, String> mapFormFields )
+    {
+        AppointmentImportFingerprint fingerprint = new AppointmentImportFingerprint( );
+        fingerprint.setIdForm( batch.getIdForm( ) );
+        fingerprint.setFingerprint( ImportRowFingerprint.of( mapGeneric, mapFormFields, batch.getStartingDateTime( ).toLocalDate( ),
+                batch.getStartingDateTime( ).toLocalTime( ), batch.getEndingDateTime( ).toLocalTime( ) ) );
+        fingerprint.setIdImportFile( batch.getIdImportFile( ) );
+        fingerprint.setIdImportAppointment( row.getIdImportAppointment( ) );
+        fingerprint.setSourceLineNumber( row.getSourceLineNumber( ) );
+        fingerprint.setAppointmentDate( batch.getStartingDateTime( ).toLocalDate( ) );
+        fingerprint.setCreationDate( LocalDateTime.now( ) );
+        return fingerprint;
+    }
+
+    /**
+     * Refuses a correction that makes the row the same as a line imported by another row.
+     *
+     * @param row
+     *            the row
+     * @param fingerprint
+     *            the fingerprint of the corrected row
+     * @param settings
+     *            what the validation depends on
+     * @return the error, or null if the line was not imported by another row
+     */
+    private static AppointmentValidationError checkImportedLine( AppointmentImportAppointment row, AppointmentImportFingerprint fingerprint,
+            ImportValidationSettings settings )
+    {
+        for ( AppointmentImportFingerprint imported : AppointmentImportHome.findFingerprints( fingerprint.getIdForm( ),
+                List.of( fingerprint.getFingerprint( ) ) ) )
+        {
+            if ( imported.getIdImportAppointment( ) != row.getIdImportAppointment( ) )
+            {
+                String strDate = imported.getCreationDate( ) == null ? "" : imported.getCreationDate( ).format( FORMAT_DATE_OUTPUT );
+                return AppointmentValidationError.row( row.getSourceLineNumber( ), settings.message( MESSAGE_FIELD_LINE ),
+                        settings.message( ERROR_ROW_ALREADY_IMPORTED, imported.getImportFileName( ), Integer.toString( imported.getSourceLineNumber( ) ),
+                                strDate ) );
+            }
+        }
+        return null;
     }
 
     /**

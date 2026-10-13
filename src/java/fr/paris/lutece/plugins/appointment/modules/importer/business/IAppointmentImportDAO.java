@@ -33,7 +33,9 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -479,4 +481,118 @@ public interface IAppointmentImportDAO
      *            the plugin
      */
     void deleteAppointmentsByBatch( int nBatchId, Plugin plugin );
+
+    /**
+     * Gives the ids of the rows of a file, by line.
+     *
+     * @param nFileId
+     *            the {@code id_import_file}
+     * @param plugin
+     *            the plugin
+     * @return the {@code id_import_appointment} of each line
+     */
+    Map<Integer, Integer> selectAppointmentIdsByFile( int nFileId, Plugin plugin );
+
+    /**
+     * Marks a row in error as replaced by a row of another file, unless it was interrupted while its appointment was being saved.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     * @param strExcludedErrorCode
+     *            the error code of the rows that cannot be replaced
+     * @param strMessage
+     *            what replaced the row
+     * @param plugin
+     *            the plugin
+     * @return true if the row is replaced
+     */
+    boolean replaceAppointment( int nId, String strExcludedErrorCode, String strMessage, Plugin plugin );
+
+    /**
+     * Completes a batch completed with errors that has no row in error any more.
+     *
+     * @param nBatchId
+     *            the {@code id_import_batch}
+     * @param plugin
+     *            the plugin
+     */
+    void completeBatchWithoutErrors( int nBatchId, Plugin plugin );
+
+    /**
+     * Completes a file completed with errors that has no row in error any more.
+     *
+     * @param nFileId
+     *            the {@code id_import_file}
+     * @param plugin
+     *            the plugin
+     */
+    void completeFileWithoutErrors( int nFileId, Plugin plugin );
+
+    // Fingerprints
+
+    /**
+     * Finds the lines already imported on a form among the given fingerprints, with the file and the row that imported them.
+     *
+     * @param nFormId
+     *            the form
+     * @param collectionFingerprints
+     *            the fingerprints
+     * @param plugin
+     *            the plugin
+     * @return the fingerprints found
+     */
+    List<AppointmentImportFingerprint> selectFingerprints( int nFormId, Collection<String> collectionFingerprints, Plugin plugin );
+
+    /**
+     * Inserts fingerprints. One already there for its form fails: the line was imported meanwhile.
+     *
+     * @param listFingerprints
+     *            the fingerprints
+     * @param plugin
+     *            the plugin
+     */
+    void insertFingerprints( List<AppointmentImportFingerprint> listFingerprints, Plugin plugin );
+
+    /**
+     * Gives a fingerprint to a new row, if it still belongs to the given row.
+     *
+     * @param fingerprint
+     *            the fingerprint with its new row
+     * @param nFromAppointmentId
+     *            the {@code id_import_appointment} of the row it belongs to
+     * @param plugin
+     *            the plugin
+     * @return true if the fingerprint belongs to the new row
+     */
+    boolean reassignFingerprint( AppointmentImportFingerprint fingerprint, int nFromAppointmentId, Plugin plugin );
+
+    /**
+     * Deletes the fingerprint of a row.
+     *
+     * @param nAppointmentId
+     *            the {@code id_import_appointment}
+     * @param plugin
+     *            the plugin
+     */
+    void deleteFingerprintByAppointment( int nAppointmentId, Plugin plugin );
+
+    /**
+     * Deletes the fingerprints of the rows of a batch that did not create their appointment, so that their lines can be imported again.
+     *
+     * @param nBatchId
+     *            the {@code id_import_batch}
+     * @param plugin
+     *            the plugin
+     */
+    void deleteFingerprintsNotCreatedByBatch( int nBatchId, Plugin plugin );
+
+    /**
+     * Deletes the fingerprints of the appointments before a date: a line in the past is refused anyway.
+     *
+     * @param dateBefore
+     *            the first date kept
+     * @param plugin
+     *            the plugin
+     */
+    void deleteFingerprintsBefore( LocalDate dateBefore, Plugin plugin );
 }

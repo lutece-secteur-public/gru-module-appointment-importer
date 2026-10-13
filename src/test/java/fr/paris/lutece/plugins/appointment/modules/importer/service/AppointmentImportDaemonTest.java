@@ -340,15 +340,127 @@ public class AppointmentImportDaemonTest extends LuteceTestCase
         assertTrue( AppointmentImportRetryService.retryRow( row.getIdImportAppointment( ) ) );
     }
 
+    @Test
+    public void testLineAlreadyImportedByAnotherFileIsRefused( ) throws IOException
+    {
+        LocalDate tuesday = _monday.plusDays( 15 );
+        AppointmentImportFile first = register( "first.xlsx", row( "BERNARD", "claire.bernard@paris.fr", tuesday, TEN, ELEVEN ) );
+
+        // The same line, written with other capitals, in another file with a new line
+        AppointmentImportFile second = registerAny( "second.xlsx", row( "Bernard", "CLAIRE.BERNARD@paris.fr", tuesday, TEN, ELEVEN ),
+                row( "COLIN", "paul.colin@paris.fr", tuesday, TEN, ELEVEN ) );
+
+        assertEquals( AppointmentImportStatus.VALIDATION_FAILED, second.getStatus( ) );
+        assertTrue( second.getValidationReport( ).contains( first.getImportFileName( ) ), second.getValidationReport( ) );
+        assertTrue( AppointmentImportHome.findBatchesByFile( second.getIdImportFile( ) ).isEmpty( ) );
+
+        // Still refused once its appointment is created
+        new AppointmentImportDaemon( ).run( );
+        assertEquals( AppointmentImportStatus.CREATED, rowsByLine( first ).get( 2 ).getStatus( ) );
+        assertEquals( AppointmentImportStatus.VALIDATION_FAILED,
+                registerAny( "third.xlsx", row( "BERNARD", "claire.bernard@paris.fr", tuesday, TEN, ELEVEN ) ).getStatus( ) );
+        // The new line alone is accepted
+        assertEquals( AppointmentImportStatus.PENDING, registerAny( "fourth.xlsx", row( "COLIN", "paul.colin@paris.fr", tuesday, TEN, ELEVEN ) ).getStatus( ) );
+        new AppointmentImportDaemon( ).run( );
+    }
+
+    @Test
+    public void testLineInErrorIsReplacedByANewFile( ) throws IOException
+    {
+        LocalDate wednesday = _monday.plusDays( 16 );
+        Object [ ] lineMartin = row( "MARTIN", "eric.martin@paris.fr", wednesday, TEN, ELEVEN );
+        Object [ ] lineRobert = row( "ROBERT", "lea.robert@paris.fr", wednesday, TEN, ELEVEN );
+        AppointmentImportFile first = register( "replaced.xlsx", lineMartin, lineRobert );
+        setFormActive( false );
+        new AppointmentImportDaemon( ).run( );
+        setFormActive( true );
+        AppointmentImportAppointment oldMartin = rowsByLine( first ).get( 2 );
+        assertEquals( AppointmentImportStatus.ERROR, oldMartin.getStatus( ) );
+
+        AppointmentImportFile second = register( "replacing.xlsx", lineMartin );
+
+        // The old row is replaced and can no longer be retried; the file keeps its other error
+        AppointmentImportAppointment replaced = AppointmentImportHome.findAppointment( oldMartin.getIdImportAppointment( ) );
+        assertEquals( AppointmentImportStatus.REPLACED, replaced.getStatus( ) );
+        assertTrue( replaced.getErrorMessage( ).contains( second.getImportFileName( ) ), replaced.getErrorMessage( ) );
+        assertFalse( AppointmentImportRetryService.retryRow( oldMartin.getIdImportAppointment( ) ) );
+        assertEquals( AppointmentImportStatus.COMPLETED_WITH_ERRORS, AppointmentImportHome.findFile( first.getIdImportFile( ) ).getStatus( ) );
+
+        // Its last error replaced, the first file is completed
+        register( "replacing-2.xlsx", lineRobert );
+        assertEquals( AppointmentImportStatus.COMPLETED, AppointmentImportHome.findFile( first.getIdImportFile( ) ).getStatus( ) );
+        AppointmentImportBatch firstBatch = AppointmentImportHome.findBatchesByFile( first.getIdImportFile( ) ).get( 0 );
+        assertEquals( AppointmentImportStatus.COMPLETED, firstBatch.getStatus( ) );
+        AppointmentImportHome.fillBatchCounts( List.of( firstBatch ) );
+        assertEquals( 2, firstBatch.getCounts( ).getReplaced( ) );
+        assertEquals( 0, firstBatch.getCounts( ).getPending( ) );
+
+        new AppointmentImportDaemon( ).run( );
+
+        assertEquals( AppointmentImportStatus.CREATED, rowsByLine( second ).get( 2 ).getStatus( ) );
+        // Created by the new file, the line is refused from now on
+        assertEquals( AppointmentImportStatus.VALIDATION_FAILED, registerAny( "replacing-3.xlsx", lineMartin ).getStatus( ) );
+    }
+
+    @Test
+    public void testInterruptedLineIsNotReplaced( ) throws IOException
+    {
+        LocalDate thursday = _monday.plusDays( 17 );
+        Object [ ] line = row( "MERCIER", "hugo.mercier@paris.fr", thursday, TEN, ELEVEN );
+        AppointmentImportFile first = register( "interrupted.xlsx", line );
+        AppointmentImportBatch batch = AppointmentImportHome.findBatchesByFile( first.getIdImportFile( ) ).get( 0 );
+        AppointmentImportAppointment row = rowsByLine( first ).get( 2 );
+        // Interrupted while its appointment was being saved: it may have it already
+        AppointmentImportHome.markAppointmentError( row.getIdImportAppointment( ), AppointmentImportRetryService.INTERRUPTED, "interrupted" );
+        AppointmentImportHome.updateBatchStatus( batch.getIdImportBatch( ), AppointmentImportStatus.COMPLETED_WITH_ERRORS );
+
+        assertEquals( AppointmentImportStatus.VALIDATION_FAILED, registerAny( "interrupted-again.xlsx", line ).getStatus( ) );
+        assertEquals( AppointmentImportStatus.ERROR, AppointmentImportHome.findAppointment( row.getIdImportAppointment( ) ).getStatus( ) );
+    }
+
+    @Test
+    public void testCorrectionLikeAnImportedLineIsRefused( ) throws IOException
+    {
+        LocalDate friday = _monday.plusDays( 18 );
+        AppointmentImportFile file = register( "correction.xlsx", row( "FONTAINE", "ines.fontaine@paris.fr", friday, TEN, ELEVEN ),
+                row( "GIRARD", "noe.girard@paris.fr", friday, TEN, ELEVEN ) );
+        setFormActive( false );
+        new AppointmentImportDaemon( ).run( );
+        setFormActive( true );
+        Map<Integer, AppointmentImportAppointment> mapRows = rowsByLine( file );
+        int nGirardId = mapRows.get( 3 ).getIdImportAppointment( );
+
+        // Corrected into the other line of the file
+        Map<String, String> mapFontaine = AppointmentImportJsonService.readMap( mapRows.get( 2 ).getGenericAttributesJson( ) );
+        List<AppointmentValidationError> listErrors = AppointmentImportRetryService.correctRow( nGirardId, new LinkedHashMap<>( mapFontaine ),
+                new LinkedHashMap<>( ), Locale.FRANCE );
+        assertEquals( 1, listErrors.size( ) );
+        assertTrue( listErrors.get( 0 ).getMessage( ).contains( file.getImportFileName( ) ), listErrors.get( 0 ).getMessage( ) );
+        assertEquals( AppointmentImportStatus.ERROR, AppointmentImportHome.findAppointment( nGirardId ).getStatus( ) );
+
+        Map<String, String> mapGirard = AppointmentImportJsonService.readMap( mapRows.get( 3 ).getGenericAttributesJson( ) );
+        mapGirard.put( "email", "noe.girard@corrige.fr" );
+        assertTrue( AppointmentImportRetryService.correctRow( nGirardId, new LinkedHashMap<>( mapGirard ), new LinkedHashMap<>( ), Locale.FRANCE ).isEmpty( ) );
+        // The corrected line is the one now imported, waiting for the daemon
+        assertEquals( AppointmentImportStatus.VALIDATION_FAILED,
+                registerAny( "correction-again.xlsx", row( "GIRARD", "noe.girard@corrige.fr", friday, TEN, ELEVEN ) ).getStatus( ) );
+        new AppointmentImportDaemon( ).run( );
+    }
+
     private AppointmentImportFile register( String strName, Object [ ]... rows ) throws IOException
+    {
+        AppointmentImportFile file = registerAny( strName, rows );
+        assertEquals( AppointmentImportStatus.PENDING, file.getStatus( ), file.getValidationReport( ) );
+        return file;
+    }
+
+    private AppointmentImportFile registerAny( String strName, Object [ ]... rows ) throws IOException
     {
         byte [ ] content = ImportTestUtils.workbook( HEADERS, rows );
         // The name makes the content of each run unique: the same file is refused the second time
         String strFileName = System.nanoTime( ) + "-" + strName;
-        AppointmentImportFile file = _importService.register( _nFormId, strFileName, content,
-                AppointmentImportService.computeFileHash( ( strFileName ).getBytes( ) ), "admin", Locale.FRANCE );
-        assertEquals( AppointmentImportStatus.PENDING, file.getStatus( ), file.getValidationReport( ) );
-        return file;
+        return _importService.register( _nFormId, strFileName, content, AppointmentImportService.computeFileHash( ( strFileName ).getBytes( ) ), "admin",
+                Locale.FRANCE );
     }
 
     private static Object [ ] row( String strLastName, String strEmail, LocalDate date, LocalTime start, LocalTime end )

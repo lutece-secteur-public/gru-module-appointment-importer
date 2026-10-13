@@ -92,7 +92,6 @@ final class AppointmentSheetReader implements SheetContentsHandler
     private static final DateTimeFormatter FORMAT_DATE_INPUT = DateTimeFormatter.ofPattern( "d/M/uuuu" ).withResolverStyle( ResolverStyle.STRICT );
     private static final DateTimeFormatter FORMAT_DATE_OUTPUT = DateTimeFormatter.ofPattern( "dd/MM/uuuu" );
     private static final DateTimeFormatter FORMAT_TIME_INPUT = DateTimeFormatter.ofPattern( "H:mm[:ss]" ).withResolverStyle( ResolverStyle.STRICT );
-    private static final String KEY_SEPARATOR = "\u0000";
 
     private final ImportValidationSettings _settings;
     private final ImportColumns _columns;
@@ -264,7 +263,7 @@ final class AppointmentSheetReader implements SheetContentsHandler
     /**
      * Validates and parses a data row, then appends a valid {@link AppointmentImportRow} to {@code _validRows}
      * or row-level errors to {@code _rowErrors}.
-     * Duplicate rows (identical on all standard columns) are detected via a key map.
+     * Duplicate rows (identical on all columns, see {@link ImportRowFingerprint}) are detected via their fingerprints.
      *
      * @param nLine 1-based row number used in error messages
      */
@@ -301,17 +300,6 @@ final class AppointmentSheetReader implements SheetContentsHandler
         }
 
         String strBirthDate = birthDate == null ? "" : birthDate.format( FORMAT_DATE_OUTPUT );
-        String strRowKey = String.join( KEY_SEPARATOR, ImportTextUtils.normalize( strLastName ), ImportTextUtils.normalize( strFirstName ),
-                ImportTextUtils.normalize( strEmail ), strPhoneNumber, strBirthDate, date.toString( ), startingTime.toString( ), endingTime.toString( ) );
-        Integer nFirstLine = _rowKeys.putIfAbsent( strRowKey, nLine );
-        if ( nFirstLine != null )
-        {
-            _rowErrors.add( AppointmentValidationError.row( nLine, _settings.message( MESSAGE_FIELD_LINE ),
-                    _settings.message( ERROR_ROW_DUPLICATE, Integer.toString( nFirstLine ) ) ) );
-
-            return;
-        }
-
         Map<String, String> mapGenericAttributes = new LinkedHashMap<>( );
         mapGenericAttributes.put( AppointmentImportRow.ATTRIBUTE_LAST_NAME, strLastName );
         mapGenericAttributes.put( AppointmentImportRow.ATTRIBUTE_FIRST_NAME, strFirstName );
@@ -323,7 +311,17 @@ final class AppointmentSheetReader implements SheetContentsHandler
         {
             mapOtherValues.put( column.getValue( ), getCell( column.getKey( ) ).getText( ) );
         }
-        _validRows.add( new AppointmentImportRow( nLine, mapGenericAttributes, mapOtherValues, date, startingTime, endingTime ) );
+        AppointmentImportRow row = new AppointmentImportRow( nLine, mapGenericAttributes, mapOtherValues, date, startingTime, endingTime );
+        // The same fingerprint as between files, so that both checks agree on what the same line is
+        Integer nFirstLine = _rowKeys.putIfAbsent( ImportRowFingerprint.of( row ), nLine );
+        if ( nFirstLine != null )
+        {
+            _rowErrors.add( AppointmentValidationError.row( nLine, _settings.message( MESSAGE_FIELD_LINE ),
+                    _settings.message( ERROR_ROW_DUPLICATE, Integer.toString( nFirstLine ) ) ) );
+
+            return;
+        }
+        _validRows.add( row );
     }
 
     /**
