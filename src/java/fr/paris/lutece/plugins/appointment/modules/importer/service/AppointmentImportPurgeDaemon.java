@@ -33,6 +33,7 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -79,6 +80,8 @@ public final class AppointmentImportPurgeDaemon extends Daemon
             AppointmentImportHome.archiveFile( nFileId );
             nFiles++;
         }
+        // A line whose appointment is past is refused anyway: its fingerprint is no longer needed
+        AppointmentImportHome.removeFingerprintsBefore( LocalDate.now( ) );
         setLastRunLogs( "Appointment import purge: " + nBatches + " batch(es) and " + nFiles + " rejected file(s) archived, " + nErrors
                 + " error(s) (retention: " + nRetentionDays + " days)" );
     }

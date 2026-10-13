@@ -229,6 +229,92 @@ public class AppointmentImportDAOTest extends AbstractLuteceIntegrationTest
         assertEquals( 1, AppointmentImportHome.findAppointmentsByBatch( nBatchId, null ).size( ) );
     }
 
+    @Test
+    public void testFingerprintsOfLinesWithoutAppointmentArePurged( )
+    {
+        int nFileId = createFile( AppointmentImportStatus.COMPLETED_WITH_ERRORS, "hash-fingerprints" );
+        int nBatchId = createBatch( nFileId, AppointmentImportStatus.COMPLETED_WITH_ERRORS );
+        List<Integer> listRowIds = createRows( nBatchId, AppointmentImportStatus.CREATED, AppointmentImportStatus.ERROR );
+        String strCreated = "created-" + System.nanoTime( );
+        String strError = "error-" + System.nanoTime( );
+        AppointmentImportHome.createFingerprints( Arrays.asList( fingerprint( strCreated, nFileId, listRowIds.get( 0 ), 2 ),
+                fingerprint( strError, nFileId, listRowIds.get( 1 ), 3 ) ) );
+        List<AppointmentImportFingerprint> listFound = AppointmentImportHome.findFingerprints( FORM_ID, Arrays.asList( strCreated, strError, "unknown" ) );
+        assertEquals( 2, listFound.size( ) );
+        listFound.forEach( found -> assertEquals( "file-" + nFileId + ".xlsx", found.getImportFileName( ) ) );
+
+        setLastExecDate( "appointment_import_batch", "id_import_batch", nBatchId, LocalDateTime.now( ).minusDays( 100 ) );
+        assertTrue( AppointmentImportHome.purgeBatch( nBatchId ) );
+
+        // The line that created its appointment is still known, without its row; the other can be imported again
+        listFound = AppointmentImportHome.findFingerprints( FORM_ID, Arrays.asList( strCreated, strError ) );
+        assertEquals( 1, listFound.size( ) );
+        assertEquals( strCreated, listFound.get( 0 ).getFingerprint( ) );
+        assertNull( listFound.get( 0 ).getRowStatus( ) );
+        assertEquals( SLOT_START.toLocalDate( ), listFound.get( 0 ).getAppointmentDate( ) );
+
+        // Past its appointment, a line is refused anyway
+        AppointmentImportHome.removeFingerprintsBefore( SLOT_START.toLocalDate( ).plusDays( 1 ) );
+        assertTrue( AppointmentImportHome.findFingerprints( FORM_ID, Arrays.asList( strCreated ) ).isEmpty( ) );
+    }
+
+    @Test
+    public void testOnlyARowInErrorIsReplaced( )
+    {
+        int nFileId = createFile( AppointmentImportStatus.COMPLETED_WITH_ERRORS, "hash-replace" );
+        int nBatchId = createBatch( nFileId, AppointmentImportStatus.COMPLETED_WITH_ERRORS );
+        List<Integer> listRowIds = createRows( nBatchId, AppointmentImportStatus.ERROR, AppointmentImportStatus.ERROR, AppointmentImportStatus.CREATED );
+        AppointmentImportHome.markAppointmentError( listRowIds.get( 1 ), "INTERRUPTED", "interrupted" );
+
+        assertFalse( AppointmentImportHome.replaceAppointment( listRowIds.get( 1 ), "INTERRUPTED", "replaced" ) );
+        assertFalse( AppointmentImportHome.replaceAppointment( listRowIds.get( 2 ), "INTERRUPTED", "replaced" ) );
+        assertTrue( AppointmentImportHome.replaceAppointment( listRowIds.get( 0 ), "INTERRUPTED", "replaced" ) );
+        AppointmentImportAppointment replaced = AppointmentImportHome.findAppointment( listRowIds.get( 0 ) );
+        assertEquals( AppointmentImportStatus.REPLACED, replaced.getStatus( ) );
+        assertEquals( "replaced", replaced.getErrorMessage( ) );
+
+        // A row is still in error: nothing completed
+        AppointmentImportBatch batch = AppointmentImportHome.findBatch( nBatchId );
+        AppointmentImportHome.completeWithoutErrors( batch );
+        assertEquals( AppointmentImportStatus.COMPLETED_WITH_ERRORS, AppointmentImportHome.findBatch( nBatchId ).getStatus( ) );
+        AppointmentImportHome.markAppointmentCreated( listRowIds.get( 1 ), 1 );
+        AppointmentImportHome.completeWithoutErrors( batch );
+        assertEquals( AppointmentImportStatus.COMPLETED, AppointmentImportHome.findBatch( nBatchId ).getStatus( ) );
+        assertEquals( AppointmentImportStatus.COMPLETED, AppointmentImportHome.findFile( nFileId ).getStatus( ) );
+    }
+
+    @Test
+    public void testFingerprintIsReassignedOnlyFromItsRow( )
+    {
+        int nFileId = createFile( AppointmentImportStatus.PENDING, "hash-reassign" );
+        List<Integer> listRowIds = createRows( createBatch( nFileId, AppointmentImportStatus.PENDING ), AppointmentImportStatus.ERROR,
+                AppointmentImportStatus.PENDING, AppointmentImportStatus.PENDING );
+        String strFingerprint = "reassign-" + System.nanoTime( );
+        AppointmentImportHome.createFingerprints( Arrays.asList( fingerprint( strFingerprint, nFileId, listRowIds.get( 0 ), 2 ) ) );
+
+        assertTrue( AppointmentImportHome.reassignFingerprint( fingerprint( strFingerprint, nFileId, listRowIds.get( 1 ), 3 ), listRowIds.get( 0 ) ) );
+        // Another file replacing the same old row comes too late
+        assertFalse( AppointmentImportHome.reassignFingerprint( fingerprint( strFingerprint, nFileId, listRowIds.get( 2 ), 4 ), listRowIds.get( 0 ) ) );
+        assertEquals( (int) listRowIds.get( 1 ),
+                AppointmentImportHome.findFingerprints( FORM_ID, Arrays.asList( strFingerprint ) ).get( 0 ).getIdImportAppointment( ) );
+
+        AppointmentImportHome.removeFingerprintByAppointment( listRowIds.get( 1 ) );
+        assertTrue( AppointmentImportHome.findFingerprints( FORM_ID, Arrays.asList( strFingerprint ) ).isEmpty( ) );
+    }
+
+    private static AppointmentImportFingerprint fingerprint( String strFingerprint, int nFileId, int nRowId, int nLine )
+    {
+        AppointmentImportFingerprint fingerprint = new AppointmentImportFingerprint( );
+        fingerprint.setIdForm( FORM_ID );
+        fingerprint.setFingerprint( strFingerprint );
+        fingerprint.setIdImportFile( nFileId );
+        fingerprint.setIdImportAppointment( nRowId );
+        fingerprint.setSourceLineNumber( nLine );
+        fingerprint.setAppointmentDate( SLOT_START.toLocalDate( ) );
+        fingerprint.setCreationDate( LocalDateTime.now( ) );
+        return fingerprint;
+    }
+
     private static int createFile( String strStatus, String strHash )
     {
         AppointmentImportFile file = new AppointmentImportFile( );

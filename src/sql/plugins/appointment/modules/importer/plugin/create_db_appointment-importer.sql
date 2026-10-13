@@ -2,6 +2,7 @@
 -- changeset appointment-importer:create_db_appointment-importer.sql
 -- preconditions onFail:MARK_RAN onError:WARN
 
+DROP TABLE IF EXISTS appointment_import_fingerprint;
 DROP TABLE IF EXISTS appointment_import_appointment;
 DROP TABLE IF EXISTS appointment_import_batch;
 DROP TABLE IF EXISTS appointment_import_file;
@@ -60,3 +61,19 @@ CREATE TABLE appointment_import_appointment (
 
 CREATE INDEX idx_appointment_import_appointment_batch ON appointment_import_appointment (id_import_batch);
 CREATE INDEX idx_appointment_import_appointment_status ON appointment_import_appointment (status);
+
+-- The fingerprint of each line imported on a form, kept after the purge of the rows (it holds no personal data) until the date of its appointment:
+-- the same line is refused when it comes again, in any file
+CREATE TABLE appointment_import_fingerprint (
+    id_form INT NOT NULL,
+    fingerprint VARCHAR(64) NOT NULL,
+    id_import_file INT NOT NULL,
+    id_import_appointment INT NOT NULL,
+    source_line_number INT NOT NULL,
+    appointment_date DATE NOT NULL,
+    creation_date TIMESTAMP NULL,
+    PRIMARY KEY (id_form, fingerprint)
+);
+
+CREATE INDEX idx_appointment_import_fingerprint_row ON appointment_import_fingerprint (id_import_appointment);
+CREATE INDEX idx_appointment_import_fingerprint_date ON appointment_import_fingerprint (appointment_date);

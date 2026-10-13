@@ -173,6 +173,18 @@ public class AppointmentExcelReaderTest
     }
 
     @Test
+    public void testRowsDifferentOnAFormFieldAreNotDuplicates( ) throws IOException
+    {
+        Object [ ] other = ImportTestUtils.sampleRow( "TESTNOM", "test@gmail.com", DATE, NINE, FIVE_PM );
+        other [8] = "CASPE 19";
+        AppointmentExcelValidationResult result = read( ImportTestUtils.HEADERS,
+                ImportTestUtils.sampleRow( "TESTNOM", "test@gmail.com", DATE, NINE, FIVE_PM ), other );
+
+        assertTrue( messages( result ).toString( ), messages( result ).isEmpty( ) );
+        assertEquals( 2, result.getValidRows( ).size( ) );
+    }
+
+    @Test
     public void testWorkbookWithoutRowsIsRejected( ) throws IOException
     {
         AppointmentExcelValidationResult result = read( ImportTestUtils.HEADERS );

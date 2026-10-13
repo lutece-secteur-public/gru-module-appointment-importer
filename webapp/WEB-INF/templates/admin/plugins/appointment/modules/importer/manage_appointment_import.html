@@ -1,6 +1,7 @@
 <#macro counts c>
     <span class="text-success">${c.created} #i18n{module.appointment.importer.countCreated}</span>
     · <span class="<#if c.errors gt 0>text-danger<#else>text-muted</#if>">${c.errors} #i18n{module.appointment.importer.countErrors}</span>
+    <#if c.replaced gt 0>· <span class="text-muted">${c.replaced} #i18n{module.appointment.importer.countReplaced}</span></#if>
     <#if c.pending gt 0>· <span class="text-muted">${c.pending} #i18n{module.appointment.importer.countPending}</span></#if>
 </#macro>
 <#macro statusBadge status>

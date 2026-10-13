@@ -33,7 +33,9 @@
  */
 package fr.paris.lutece.plugins.appointment.modules.importer.business;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -422,7 +424,9 @@ public final class AppointmentImportHome
         TransactionManager.beginTransaction( _plugin );
         try
         {
-            // The rows, then the batch: the order of a retry, so that both never wait for each other
+            // The rows, then the batch: the order of a retry, so that both never wait for each other. A line that created no appointment can be
+            // imported again once its row is gone
+            _dao.deleteFingerprintsNotCreatedByBatch( nBatchId, _plugin );
             _dao.deleteAppointmentsByBatch( nBatchId, _plugin );
             if ( !_dao.archiveBatch( nBatchId, _plugin ) )
             {
@@ -578,5 +582,108 @@ public final class AppointmentImportHome
     public static void markAppointmentError( int nId, String strCode, String strMessage )
     {
         _dao.updateAppointment( nId, AppointmentImportStatus.ERROR, strCode, strMessage, null, _plugin );
+    }
+
+    /**
+     * Gives the ids of the rows of a file, by line.
+     *
+     * @param nFileId
+     *            the {@code id_import_file}
+     * @return the {@code id_import_appointment} of each line
+     */
+    public static Map<Integer, Integer> findAppointmentIdsByFile( int nFileId )
+    {
+        return _dao.selectAppointmentIdsByFile( nFileId, _plugin );
+    }
+
+    /**
+     * Marks a row in error as replaced by a row of another file, unless it was interrupted while its appointment was being saved.
+     *
+     * @param nId
+     *            the {@code id_import_appointment}
+     * @param strExcludedErrorCode
+     *            the error code of the rows that cannot be replaced
+     * @param strMessage
+     *            what replaced the row
+     * @return true if the row is replaced
+     */
+    public static boolean replaceAppointment( int nId, String strExcludedErrorCode, String strMessage )
+    {
+        return _dao.replaceAppointment( nId, strExcludedErrorCode, strMessage, _plugin );
+    }
+
+    /**
+     * Completes a batch, and its file, completed with errors that have no row in error any more.
+     *
+     * @param batch
+     *            the batch
+     */
+    public static void completeWithoutErrors( AppointmentImportBatch batch )
+    {
+        _dao.completeBatchWithoutErrors( batch.getIdImportBatch( ), _plugin );
+        _dao.completeFileWithoutErrors( batch.getIdImportFile( ), _plugin );
+    }
+
+    // Fingerprints
+
+    /**
+     * Finds the lines already imported on a form among the given fingerprints.
+     *
+     * @param nFormId
+     *            the form
+     * @param collectionFingerprints
+     *            the fingerprints
+     * @return the fingerprints found, with the file and the row that imported them
+     */
+    public static List<AppointmentImportFingerprint> findFingerprints( int nFormId, Collection<String> collectionFingerprints )
+    {
+        return _dao.selectFingerprints( nFormId, collectionFingerprints, _plugin );
+    }
+
+    /**
+     * Inserts fingerprints. One already there for its form fails: the line was imported meanwhile.
+     *
+     * @param listFingerprints
+     *            the fingerprints
+     */
+    public static void createFingerprints( List<AppointmentImportFingerprint> listFingerprints )
+    {
+        _dao.insertFingerprints( listFingerprints, _plugin );
+    }
+
+    /**
+     * Gives a fingerprint to a new row, if it still belongs to the given row.
+     *
+     * @param fingerprint
+     *            the fingerprint with its new row
+     * @param nFromAppointmentId
+     *            the {@code id_import_appointment} of the row it belongs to
+     * @return true if the fingerprint belongs to the new row
+     */
+    public static boolean reassignFingerprint( AppointmentImportFingerprint fingerprint, int nFromAppointmentId )
+    {
+        return _dao.reassignFingerprint( fingerprint, nFromAppointmentId, _plugin );
+    }
+
+    /**
+     * Deletes the fingerprint of a row.
+     *
+     * @param nAppointmentId
+     *            the {@code id_import_appointment}
+     */
+    public static void removeFingerprintByAppointment( int nAppointmentId )
+    {
+        _dao.deleteFingerprintByAppointment( nAppointmentId, _plugin );
+    }
+
+    /**
+     * Deletes the fingerprints of the appointments before a date: a line in the past is refused anyway.
+     *
+     * @param dateBefore
+     *            the first date kept
+     */
+    public static void removeFingerprintsBefore( LocalDate dateBefore )
+    {
+        _dao.deleteFingerprintsBefore( dateBefore, _plugin );
     }
 }

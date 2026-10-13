@@ -36,7 +36,9 @@ package fr.paris.lutece.plugins.appointment.modules.importer.service;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -46,6 +48,7 @@ import fr.paris.lutece.plugins.appointment.modules.importer.business.Appointment
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportAppointment;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportBatch;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFile;
+import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportFingerprint;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportHome;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportRow;
 import fr.paris.lutece.plugins.appointment.modules.importer.business.AppointmentImportStatus;
@@ -58,6 +61,11 @@ import fr.paris.lutece.util.sql.TransactionManager;
 /** Validates an upload then persists its immutable source data for daemon processing. */
 public final class AppointmentImportService
 {
+    private static final String MESSAGE_FIELD_LINE = "module.appointment.importer.line";
+    private static final String ERROR_ROW_ALREADY_IMPORTED = "module.appointment.importer.error.row.alreadyImported";
+    private static final String MESSAGE_ROW_REPLACED = "module.appointment.importer.message.rowReplaced";
+    private static final DateTimeFormatter FORMAT_DATE = DateTimeFormatter.ofPattern( "dd/MM/uuuu" );
+
     private final AppointmentExcelReader _reader = new AppointmentExcelReader( );
 
     /**
@@ -121,7 +129,51 @@ public final class AppointmentImportService
             }
         }
         Map<String, List<AppointmentImportRow>> mapRowsBySlot = groupBySlot( validation.getValidRows( ) );
+        Map<String, AppointmentImportRow> mapRowsByFingerprint = new LinkedHashMap<>( );
+        // The duplicates of the file are not among the valid rows: each fingerprint is one row
+        validation.getValidRows( ).forEach( row -> mapRowsByFingerprint.put( ImportRowFingerprint.of( row ), row ) );
         AppLogService.debug( "Appointment import [" + strFileName + "]: " + validation.getValidRows( ).size( ) + " rows, " + listErrors.size( ) + " errors" );
+
+        try
+        {
+            return persist( nFormId, strFileName, strFileHash, strAdminAccessCode, listErrors, mapRowsBySlot, mapRowsByFingerprint, settings );
+        }
+        catch( RuntimeException e )
+        {
+            // Another file imported one of the lines, or retried a row it replaces, since they were checked: checked again, they are refused
+            AppLogService.info( "Appointment import [" + strFileName + "]: lines imported meanwhile, checking them again (" + e.getMessage( ) + ")" );
+            return persist( nFormId, strFileName, strFileHash, strAdminAccessCode, listErrors, mapRowsBySlot, mapRowsByFingerprint, settings );
+        }
+    }
+
+    /**
+     * Checks the lines against the lines already imported on the form, then persists the file with its rows, or as rejected, in one transaction.
+     *
+     * @param nFormId
+     *            the form
+     * @param strFileName
+     *            the name of the uploaded file
+     * @param strFileHash
+     *            the digest of the file
+     * @param strAdminAccessCode
+     *            the access code of the administrator who uploads the file
+     * @param listErrors
+     *            the errors of the workbook
+     * @param mapRowsBySlot
+     *            the valid rows of each interval
+     * @param mapRowsByFingerprint
+     *            the valid rows, by fingerprint
+     * @param settings
+     *            what the validation depends on
+     * @return the persisted file
+     */
+    private AppointmentImportFile persist( int nFormId, String strFileName, String strFileHash, String strAdminAccessCode,
+            List<AppointmentValidationError> listErrors, Map<String, List<AppointmentImportRow>> mapRowsBySlot,
+            Map<String, AppointmentImportRow> mapRowsByFingerprint, ImportValidationSettings settings )
+    {
+        Map<String, AppointmentImportFingerprint> mapReplaced = new HashMap<>( );
+        List<AppointmentValidationError> listAllErrors = new ArrayList<>( listErrors );
+        listAllErrors.addAll( checkImportedLines( nFormId, mapRowsByFingerprint, mapReplaced, settings ) );
 
         AppointmentImportFile file = new AppointmentImportFile( );
         file.setIdForm( nFormId );
@@ -129,17 +181,18 @@ public final class AppointmentImportService
         file.setAdminAccessCode( strAdminAccessCode );
         file.setCreationDate( LocalDateTime.now( ) );
         file.setFileHash( strFileHash );
-        file.setValidationReport( AppointmentImportJsonService.writeErrors( listErrors ) );
-        file.setStatus( listErrors.isEmpty( ) ? AppointmentImportStatus.PENDING : AppointmentImportStatus.VALIDATION_FAILED );
+        file.setValidationReport( AppointmentImportJsonService.writeErrors( listAllErrors ) );
+        file.setStatus( listAllErrors.isEmpty( ) ? AppointmentImportStatus.PENDING : AppointmentImportStatus.VALIDATION_FAILED );
         // The daemon must not see a pending batch before all its rows are stored
         Plugin plugin = PluginService.getPlugin( AppointmentImportHome.PLUGIN_NAME );
         TransactionManager.beginTransaction( plugin );
         try
         {
             file.setIdImportFile( AppointmentImportHome.createFile( file ) );
-            if ( listErrors.isEmpty( ) )
+            if ( listAllErrors.isEmpty( ) )
             {
                 persistRows( file, mapRowsBySlot );
+                claimLines( file, mapRowsByFingerprint, mapReplaced, settings );
             }
             TransactionManager.commitTransaction( plugin );
         }
@@ -149,6 +202,110 @@ public final class AppointmentImportService
             throw e;
         }
         return file;
+    }
+
+    /**
+     * Finds the lines of the file already imported on the form. A line whose row is in error without an appointment is not refused: its row is
+     * replaced by the row of this file.
+     *
+     * @param nFormId
+     *            the form
+     * @param mapRowsByFingerprint
+     *            the valid rows, by fingerprint
+     * @param mapReplaced
+     *            filled with the lines whose row is replaced, by fingerprint
+     * @param settings
+     *            what the validation depends on
+     * @return one error per line already imported
+     */
+    private static List<AppointmentValidationError> checkImportedLines( int nFormId, Map<String, AppointmentImportRow> mapRowsByFingerprint,
+            Map<String, AppointmentImportFingerprint> mapReplaced, ImportValidationSettings settings )
+    {
+        List<AppointmentValidationError> listErrors = new ArrayList<>( );
+        if ( mapRowsByFingerprint.isEmpty( ) )
+        {
+            return listErrors;
+        }
+        for ( AppointmentImportFingerprint imported : AppointmentImportHome.findFingerprints( nFormId, mapRowsByFingerprint.keySet( ) ) )
+        {
+            if ( isReplaceable( imported ) )
+            {
+                mapReplaced.put( imported.getFingerprint( ), imported );
+                continue;
+            }
+            String strDate = imported.getCreationDate( ) == null ? "" : imported.getCreationDate( ).format( FORMAT_DATE );
+            listErrors.add( AppointmentValidationError.row( mapRowsByFingerprint.get( imported.getFingerprint( ) ).getLineNumber( ),
+                    settings.message( MESSAGE_FIELD_LINE ), settings.message( ERROR_ROW_ALREADY_IMPORTED, imported.getImportFileName( ),
+                            Integer.toString( imported.getSourceLineNumber( ) ), strDate ) ) );
+        }
+        listErrors.sort( ( e1, e2 ) -> Integer.compare( e1.getLineNumber( ), e2.getLineNumber( ) ) );
+        return listErrors;
+    }
+
+    /**
+     * A line can be imported again by another file only while its row is in error: a row created or waiting for the daemon would give two
+     * appointments, and a row interrupted while its appointment was being saved may have it already.
+     *
+     * @param imported
+     *            the line already imported
+     * @return true if its row can be replaced
+     */
+    static boolean isReplaceable( AppointmentImportFingerprint imported )
+    {
+        return AppointmentImportStatus.ERROR.equals( imported.getRowStatus( ) ) && !AppointmentImportException.INTERRUPTED.equals( imported.getRowErrorCode( ) );
+    }
+
+    /**
+     * Records the fingerprints of the rows of the file. A line imported before by a row in error takes its fingerprint, and the old row is replaced: it
+     * is never retried, and its batch and file are completed if it was their last error.
+     *
+     * @param file
+     *            the file, with its rows stored
+     * @param mapRowsByFingerprint
+     *            the rows of the file, by fingerprint
+     * @param mapReplaced
+     *            the lines whose row is replaced, by fingerprint
+     * @param settings
+     *            what the validation depends on
+     * @throws IllegalStateException
+     *             if a line was imported, or its old row retried, since it was checked
+     */
+    private static void claimLines( AppointmentImportFile file, Map<String, AppointmentImportRow> mapRowsByFingerprint,
+            Map<String, AppointmentImportFingerprint> mapReplaced, ImportValidationSettings settings )
+    {
+        Map<Integer, Integer> mapRowIds = AppointmentImportHome.findAppointmentIdsByFile( file.getIdImportFile( ) );
+        LocalDateTime dtNow = LocalDateTime.now( );
+        List<AppointmentImportFingerprint> listNew = new ArrayList<>( );
+        for ( Map.Entry<String, AppointmentImportRow> entry : mapRowsByFingerprint.entrySet( ) )
+        {
+            AppointmentImportRow row = entry.getValue( );
+            AppointmentImportFingerprint fingerprint = new AppointmentImportFingerprint( );
+            fingerprint.setIdForm( file.getIdForm( ) );
+            fingerprint.setFingerprint( entry.getKey( ) );
+            fingerprint.setIdImportFile( file.getIdImportFile( ) );
+            fingerprint.setIdImportAppointment( mapRowIds.get( row.getLineNumber( ) ) );
+            fingerprint.setSourceLineNumber( row.getLineNumber( ) );
+            fingerprint.setAppointmentDate( row.getAppointmentDate( ) );
+            fingerprint.setCreationDate( dtNow );
+            AppointmentImportFingerprint replaced = mapReplaced.get( entry.getKey( ) );
+            if ( replaced == null )
+            {
+                listNew.add( fingerprint );
+                continue;
+            }
+            // The fingerprint first: of two files replacing the same row, only one gets it
+            if ( !AppointmentImportHome.reassignFingerprint( fingerprint, replaced.getIdImportAppointment( ) )
+                    || !AppointmentImportHome.replaceAppointment( replaced.getIdImportAppointment( ), AppointmentImportException.INTERRUPTED,
+                            settings.message( MESSAGE_ROW_REPLACED, Integer.toString( row.getLineNumber( ) ), file.getImportFileName( ) ) ) )
+            {
+                throw new IllegalStateException( "line " + row.getLineNumber( ) + " imported or retried meanwhile" );
+            }
+            AppointmentImportBatch batch = AppointmentImportHome.findBatch( AppointmentImportHome.findAppointment( replaced.getIdImportAppointment( ) )
+                    .getIdImportBatch( ) );
+            AppointmentImportHome.completeWithoutErrors( batch );
+        }
+        // Fails on a line imported meanwhile by another file: its fingerprint is there already
+        AppointmentImportHome.createFingerprints( listNew );
     }
 
     /**

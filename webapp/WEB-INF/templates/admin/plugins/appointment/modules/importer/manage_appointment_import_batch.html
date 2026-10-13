@@ -10,6 +10,7 @@
     <#if status == 'CREATED'><@tag color='success'>#i18n{module.appointment.importer.status.CREATED}</@tag>
     <#elseif status == 'ERROR'><@tag color='danger'>#i18n{module.appointment.importer.status.ERROR}</@tag>
     <#elseif status == 'PROCESSING'><@tag color='warning'>#i18n{module.appointment.importer.status.PROCESSING}</@tag>
+    <#elseif status == 'REPLACED'><@tag color='info'>#i18n{module.appointment.importer.status.REPLACED}</@tag>
     <#elseif status == 'PENDING'><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag>
     <#else><@tag color='secondary'>${status?html}</@tag></#if>
 </#macro>
@@ -47,6 +48,7 @@
                 <div>
                     <span class="text-success">${import_batch.counts.created} #i18n{module.appointment.importer.countCreated}</span>
                     · <span class="<#if import_batch.counts.errors gt 0>text-danger<#else>text-muted</#if>">${import_batch.counts.errors} #i18n{module.appointment.importer.countErrors}</span>
+                    <#if import_batch.counts.replaced gt 0>· <span class="text-muted">${import_batch.counts.replaced} #i18n{module.appointment.importer.countReplaced}</span></#if>
                 </div>
             </div>
         </div>

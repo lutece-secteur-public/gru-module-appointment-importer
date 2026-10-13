@@ -40,6 +40,7 @@ public final class ImportCounts
 {
     private int _nCreated;
     private int _nErrors;
+    private int _nReplaced;
     private int _nTotal;
 
     /**
@@ -61,6 +62,11 @@ public final class ImportCounts
             {
                 _nErrors += nCount;
             }
+            else
+                if ( AppointmentImportStatus.REPLACED.equals( strStatus ) )
+                {
+                    _nReplaced += nCount;
+                }
         _nTotal += nCount;
     }
 
@@ -85,12 +91,20 @@ public final class ImportCounts
      */
     public int getPending( )
     {
-        return _nTotal - _nCreated - _nErrors;
+        return _nTotal - _nCreated - _nErrors - _nReplaced;
     }
 
     /**
      * @return the number of rows
      */
+    /**
+     * @return the number of rows in error replaced by a row of a later file
+     */
+    public int getReplaced( )
+    {
+        return _nReplaced;
+    }
+
     public int getTotal( )
     {
         return _nTotal;

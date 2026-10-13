@@ -54,7 +54,9 @@ Any additional column must match a generic-attribute field of the selected form,
 - Last and first names must not exceed 100 characters.
 - Dates are native Excel dates or `dd/mm/yyyy`, times native Excel times or `HH:mm`.
 - The appointment must start in the future, the end time must be after the start time, the birth date must not be in the future.
-- Duplicate rows (identical on all standard columns) are rejected.
+- Duplicate rows are rejected: rows identical on all the columns, the standard columns and the form fields, ignoring capitals, accents and
+  extra blanks.
+- Rows already imported on the same form, by any earlier file, are rejected the same way (see below).
 - Duplicate files (same SHA-256 hash on the same form) are rejected.
 - A file has at most 20 000 rows (configurable).
 
@@ -65,6 +67,23 @@ An unreadable workbook, or one without a header row, is only reported as such.
 The slots are checked when the appointments are created. A row in error says why: no slot on that day (`SLOT_NOT_FOUND`), outside
 the opening hours (`SLOT_NOT_FOUND`), times not on the limits of the slots (`SLOT_NOT_ALIGNED`, with the duration of the slots),
 slot closed (`SLOT_CLOSED`) or full (`SLOT_FULL`).
+
+## Rows already imported
+
+Each row accepted on a form leaves a fingerprint in `appointment_import_fingerprint`: a SHA-256 digest of its columns, computed as for
+the duplicate rows of a file, which holds no personal data. A file with a row whose fingerprint is there is rejected, and the report gives
+the file, the line and the date of its first import. The primary key on the form and the fingerprint makes sure that two files uploaded at the
+same time never both import the same row.
+
+- A row that created its appointment, or still waits for the daemon, keeps its line: the line is refused.
+- A row in error replaced by a later file: the line is accepted, and the old row is marked `REPLACED` (it is never retried; its batch and
+  its file are completed if it was their last error). A row interrupted while its appointment was being saved (`INTERRUPTED`) is not
+  replaced, since it may have its appointment.
+- A row corrected takes the fingerprint of its new values; a correction identical to a row already imported is refused.
+- The purge deletes the fingerprints of the rows that created no appointment, so that their lines can be imported again, and the
+  fingerprints of the past appointments, refused anyway.
+
+The appointments taken outside the import (front office, back office) are not compared.
 
 ## Processing
 
