@@ -2,7 +2,7 @@
 <plug-in>
     <name>appointment-importer</name>
     <class>fr.paris.lutece.portal.service.plugin.PluginDefaultImplementation</class>
-    <version>2.0.0-SNAPSHOT</version>
+    <version>2.0.0-beta-01</version>
     <description>module.appointment.importer.module.description</description>
     <provider>City of Paris</provider>
     <provider-url>https://lutece.paris.fr</provider-url>
