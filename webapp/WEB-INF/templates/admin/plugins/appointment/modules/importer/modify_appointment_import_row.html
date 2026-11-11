@@ -3,28 +3,28 @@
 <@box class='border shadow-sm'>
     <div class="card-header bg-light d-flex align-items-center justify-content-between flex-wrap gap-2">
         <h3 class="card-title mb-0">#i18n{module.appointment.importer.modifyRow.title} ${import_row.sourceLineNumber}</h3>
-        <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=viewImportBatch&amp;id_import_batch=${import_batch.idImportBatch}' buttonIcon='arrow-left' title='#i18n{module.appointment.importer.buttonBack}' size='sm' color='light' />
+        <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=viewImportBatch&id_import_batch=${import_batch.idImportBatch}' buttonIcon='arrow-left' title='#i18n{module.appointment.importer.buttonBack}' size='sm' color='light' />
     </div>
     <@boxBody>
         <div class="mb-3">
             <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchSlot}</div>
-            <div>${import_batch.startingDateTimeLabel?html} – ${import_batch.endingTimeLabel?html}</div>
+            <div>${import_batch.startingDateTimeLabel} – ${import_batch.endingTimeLabel}</div>
             <div class="form-text">#i18n{module.appointment.importer.modifyRow.slotHelp}</div>
         </div>
-        <@alert color='danger'>${import_row.errorMessage!?html}</@alert>
+        <@alert color='danger'>${import_row.errorMessage!}</@alert>
         <#if row_errors?has_content>
-            <@alert color='danger'><#list row_errors as error><#if error.field?has_content>${error.field?html} : </#if>${error.message?html}<#if error_has_next><br></#if></#list></@alert>
+            <@alert color='danger'><#list row_errors as error><#if error.field?has_content>${error.field} : </#if>${error.message}<#if error_has_next><br></#if></#list></@alert>
         </#if>
         <@tform name='modify_import_row' action='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp' method='post'>
             <@input type='hidden' name='id_import_appointment' value='${import_row.idImportAppointment}' />
             <#list generic_values as value>
-                <@formGroup labelFor=value.name labelKey=value.label?html mandatory=(value.mandatory == 'true')>
-                    <@input type='text' name=value.name id=value.name value=value.value?html />
+                <@formGroup labelFor=value.name labelKey=value.label mandatory=(value.mandatory == 'true')>
+                    <@input type='text' name=value.name id=value.name value=value.value />
                 </@formGroup>
             </#list>
             <#list field_values as value>
-                <@formGroup labelFor=value.name labelKey=value.label?html>
-                    <@input type='text' name=value.name id=value.name value=value.value?html />
+                <@formGroup labelFor=value.name labelKey=value.label>
+                    <@input type='text' name=value.name id=value.name value=value.value />
                 </@formGroup>
             </#list>
             <@button type='submit' name='action_doModifyImportRow' buttonIcon='check' title='#i18n{module.appointment.importer.modifyRow.save}' color='primary' />

@@ -4,7 +4,7 @@
     <#elseif status == 'PROCESSING'><@tag color='warning'>#i18n{module.appointment.importer.status.PROCESSING}</@tag>
     <#elseif status == 'VALIDATION_FAILED'><@tag color='danger'>#i18n{module.appointment.importer.status.VALIDATION_FAILED}</@tag>
     <#elseif status == 'PENDING'><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag>
-    <#else><@tag color='secondary'>${status?html}</@tag></#if>
+    <#else><@tag color='secondary'>${status}</@tag></#if>
 </#macro>
 <#macro rowStatusBadge status>
     <#if status == 'CREATED'><@tag color='success'>#i18n{module.appointment.importer.status.CREATED}</@tag>
@@ -12,7 +12,7 @@
     <#elseif status == 'PROCESSING'><@tag color='warning'>#i18n{module.appointment.importer.status.PROCESSING}</@tag>
     <#elseif status == 'REPLACED'><@tag color='info'>#i18n{module.appointment.importer.status.REPLACED}</@tag>
     <#elseif status == 'PENDING'><@tag color='secondary'>#i18n{module.appointment.importer.status.PENDING}</@tag>
-    <#else><@tag color='secondary'>${status?html}</@tag></#if>
+    <#else><@tag color='secondary'>${status}</@tag></#if>
 </#macro>
 <@messages errors=errors![] warnings=warnings![] infos=infos![] />
 <@row><@columns lg=10 offsetLg=1>
@@ -25,15 +25,15 @@
         <div class="row g-3 mb-4 pb-3 border-bottom">
             <div class="col-sm-6 col-lg-4">
                 <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchFile}</div>
-                <div>${import_batch.importFileName?html}</div>
+                <div>${import_batch.importFileName}</div>
             </div>
             <div class="col-sm-6 col-lg-4">
                 <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchForm}</div>
-                <div><#if import_batch.formTitle?has_content>${import_batch.formTitle?html}<#else>${import_batch.idForm}</#if></div>
+                <div><#if import_batch.formTitle?has_content>${import_batch.formTitle}<#else>${import_batch.idForm}</#if></div>
             </div>
             <div class="col-sm-6 col-lg-4">
                 <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchSlot}</div>
-                <div>${import_batch.startingDateTimeLabel?html} – ${import_batch.endingTimeLabel?html}</div>
+                <div>${import_batch.startingDateTimeLabel} – ${import_batch.endingTimeLabel}</div>
             </div>
             <div class="col-sm-6 col-lg-4">
                 <div class="text-muted small text-uppercase fw-semibold mb-1">#i18n{module.appointment.importer.labelBatchStatus}</div>
@@ -54,8 +54,8 @@
         </div>
         <div class="mb-3 d-flex gap-2 flex-wrap">
             <@aButton href=batch_url title='#i18n{module.appointment.importer.buttonAllRows}' size='sm' color='light' />
-            <@aButton href='${batch_url}&amp;status=ERROR' title='#i18n{module.appointment.importer.buttonErrors}' color='danger' size='sm' />
-            <@aButton href='${batch_url}&amp;status=CREATED' title='#i18n{module.appointment.importer.buttonCreated}' color='success' size='sm' />
+            <@aButton href='${batch_url}&status=ERROR' title='#i18n{module.appointment.importer.buttonErrors}' color='danger' size='sm' />
+            <@aButton href='${batch_url}&status=CREATED' title='#i18n{module.appointment.importer.buttonCreated}' color='success' size='sm' />
             <#if can_retry && import_batch.status == 'COMPLETED_WITH_ERRORS'>
             <@tform class='d-inline ms-auto' action='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp'>
                 <@input type='hidden' name='id_import_batch' value='${import_batch.idImportBatch}' />
@@ -77,17 +77,17 @@
                 <tr>
                     <td class="text-center text-muted">${row.sourceLineNumber}</td>
                     <td><@rowStatusBadge status=row.status /></td>
-                    <td class="text-muted small">${row.errorMessage!?html}</td>
+                    <td class="text-muted small">${row.errorMessage!}</td>
                     <td class="text-end">
                         <#if row.idAppointment??>
                             <@aButton href='jsp/admin/plugins/appointment/ManageAppointments.jsp?view=viewAppointment&id_form=${import_batch.idForm}&id_appointment=${row.idAppointment}' title='#i18n{module.appointment.importer.buttonViewAppointment}' size='sm' buttonIcon='eye' />
                         <#elseif can_retry && row.status == 'ERROR' && import_batch.status != 'PROCESSING' && import_batch.status != 'ARCHIVED'>
-                            <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=modifyImportRow&amp;id_import_appointment=${row.idImportAppointment}' title='#i18n{module.appointment.importer.buttonCorrectRow}' size='sm' buttonIcon='pencil' color='light' />
+                            <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=modifyImportRow&id_import_appointment=${row.idImportAppointment}' title='#i18n{module.appointment.importer.buttonCorrectRow}' size='sm' buttonIcon='pencil' color='light' />
                             <#-- The retry asks for a confirmation, which warns when the row was interrupted: its appointment may exist -->
                             <#if (row.errorCode!) == interrupted_code>
-                            <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=confirmRetryImportRow&amp;id_import_appointment=${row.idImportAppointment}' title='#i18n{module.appointment.importer.buttonRetryInterruptedRow}' color='danger' size='sm' buttonIcon='refresh' />
+                            <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=confirmRetryImportRow&id_import_appointment=${row.idImportAppointment}' title='#i18n{module.appointment.importer.buttonRetryInterruptedRow}' color='danger' size='sm' buttonIcon='refresh' />
                             <#else>
-                            <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=confirmRetryImportRow&amp;id_import_appointment=${row.idImportAppointment}' title='#i18n{module.appointment.importer.buttonRetryRow}' color='warning' size='sm' buttonIcon='refresh' />
+                            <@aButton href='jsp/admin/plugins/appointment/modules/importer/ManageAppointmentImport.jsp?view=confirmRetryImportRow&id_import_appointment=${row.idImportAppointment}' title='#i18n{module.appointment.importer.buttonRetryRow}' color='warning' size='sm' buttonIcon='refresh' />
                             </#if>
                         </#if>
                     </td>
